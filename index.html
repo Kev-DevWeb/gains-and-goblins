@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Gains & Goblins - Un MMORPG donde tus actividades reales impulsan a tu personaje de fantasía" />
+  <title>Gains & Goblins</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles/game.css" />
+</head>
+<body>
+  <div id="ui-frame">
+    <!-- Contenedor del Juego (Phaser) -->
+    <div id="game-container"></div>
+
+    <!-- Panel de Botones HUD Inferiores/Laterales -->
+    <div id="hud-controls">
+      <button class="hud-btn" id="btn-stats" title="Estadísticas (TAB)">📊 Stats</button>
+      <button class="hud-btn" id="btn-inventory" title="Inventario (I)">🎒 Inventario</button>
+      <button class="hud-btn" id="btn-habits" title="Hábitos (L)">💪 Hábitos</button>
+      <button class="hud-btn" id="btn-help" title="Ayuda">❓ Ayuda</button>
+    </div>
+
+    <!-- Panel de Inventario -->
+    <div id="inventory-panel" class="hud-panel glass-panel hidden">
+      <div class="panel-header">
+        <h2 class="medieval-text gold-text">Inventario</h2>
+        <button class="close-btn" data-target="inventory-panel">&times;</button>
+      </div>
+      <div class="inventory-grid" id="inventory-grid">
+        <!-- Los items se inyectan aquí -->
+      </div>
+      <div class="gold-display">
+        Oro: <span id="hud-gold">0</span> 💰
+      </div>
+    </div>
+
+    <!-- Panel de Estadísticas -->
+    <div id="stats-panel" class="hud-panel glass-panel hidden">
+      <div class="panel-header">
+        <h2 class="medieval-text gold-text">Estadísticas</h2>
+        <button class="close-btn" data-target="stats-panel">&times;</button>
+      </div>
+      <div class="stats-content">
+        <div class="stat-row"><span>Nivel:</span> <span id="hud-level">1</span></div>
+        <div class="stat-row"><span>XP:</span> <span id="hud-xp">0/50</span></div>
+        <hr class="panel-divider" />
+        <div id="hud-stats-list">
+          <!-- Estadísticas dinámicas -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel de Ayuda -->
+    <div id="help-panel" class="hud-panel glass-panel hidden">
+      <div class="panel-header">
+        <h2 class="medieval-text gold-text">Ayuda</h2>
+        <button class="close-btn" data-target="help-panel">&times;</button>
+      </div>
+      <div class="help-content" style="display: flex; flex-direction: column; gap: 15px; margin-top: 10px;">
+        <div style="font-size: 0.9rem; line-height: 1.5; margin-bottom: 10px;">
+          <strong class="gold-text">🎮 Controles:</strong><br>
+          • <b>W,A,S,D / Flechas:</b> Moverse<br>
+          • <b>ESPACIO:</b> Atacar (Mantener para cargar)<br>
+          • <b>SHIFT:</b> Esquivar (Voltereta)<br>
+          • <b>1, 2, 3:</b> Cambiar Arma<br>
+          • <b>Q, F:</b> Hechizos<br>
+          • <b>E:</b> Interactuar (NPCs, Carteles)<br>
+          • <b>H, M:</b> Usar poción de vida/maná<br>
+        </div>
+        <button class="hud-btn" id="btn-privacy" style="text-align: center;">Aviso de Privacidad</button>
+        <button class="hud-btn" id="btn-about" style="text-align: center;">Sobre Mí</button>
+      </div>
+    </div>
+
+    <!-- Quick-Use HUD (Combat) -->
+    <div id="quick-hud">
+      <div class="quick-slot" id="quick-hp" title="Usar Poción de Vida (H)">
+        <span class="slot-key">H</span>
+        <span class="slot-icon">🧪</span>
+        <span class="slot-count" id="count-hp">0</span>
+      </div>
+      <div class="quick-slot" id="quick-mp" title="Usar Poción de Maná (M)">
+        <span class="slot-key">M</span>
+        <span class="slot-icon">💧</span>
+        <span class="slot-count" id="count-mp">0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy Modal -->
+  <div id="privacy-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 class="medieval-text gold-text">Privacidad</h2>
+        <button class="close-btn" data-target="privacy-modal">&times;</button>
+      </div>
+      <p style="margin-top: 15px; line-height: 1.6;">
+        Gains & Goblins valora tu privacidad. Todos los datos de tus hábitos y progreso se guardan localmente en tu navegador y no se comparten con terceros.
+      </p>
+    </div>
+  </div>
+
+  <!-- About Modal -->
+  <div id="about-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 class="medieval-text gold-text">Sobre Mí</h2>
+        <button class="close-btn" data-target="about-modal">&times;</button>
+      </div>
+      <p style="margin-top: 15px; line-height: 1.6;">
+        Desarrollado para ayudarte a mejorar tus hábitos de la vida real mediante la gamificación. ¡Sube de nivel en el juego mejorando en la vida real!
+      </p>
+    </div>
+  </div>
+
+  <!-- Activity Tracker Modal -->
+  <div id="activity-modal" class="modal-overlay hidden">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h2 class="medieval-text gold-text">Registro de Hábitos</h2>
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+      </div>
+      <p class="modal-subtitle">¿Qué actividad has completado en la vida real?</p>
+      
+      <div class="activities-grid" id="activities-grid">
+        <!-- Buttons injected dynamically or hardcoded -->
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

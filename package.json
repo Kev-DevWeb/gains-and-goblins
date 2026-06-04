@@ -1,0 +1,18 @@
+{
+  "name": "gains-and-goblins",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Gains & Goblins - An MMORPG where real-life activities power your character",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.87.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}
