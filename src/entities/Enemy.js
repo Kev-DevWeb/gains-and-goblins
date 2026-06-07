@@ -1,4 +1,8 @@
 import Phaser from 'phaser';
+import { SOLID_TILES, TILE_SIZE } from '../utils/constants.js';
+
+// Pre-build solid tile set once (shared across all enemies)
+const SOLID_SET = new Set(SOLID_TILES);
 
 const STATES = {
   IDLE: 'IDLE',
@@ -10,7 +14,7 @@ const STATES = {
 };
 
 export default class Enemy extends Phaser.Physics.Arcade.Sprite {
-  constructor(scene, x, y, typeConfig) {
+  constructor(scene, x, y, typeConfig, level = 1) {
     const key = `enemy_${typeConfig.name.toLowerCase()}`;
     super(scene, x, y, key);
     
@@ -18,10 +22,11 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
 
     this.typeConfig = typeConfig;
-    this.hp = typeConfig.hp;
-    this.maxHp = typeConfig.hp;
-    this.damage = typeConfig.damage;
-    this.xpReward = typeConfig.xp;
+    this.level = level;
+    this.maxHp = Math.round(typeConfig.hp * level);
+    this.hp = this.maxHp;
+    this.damage = Math.round(typeConfig.damage * level);
+    this.xpReward = Math.round(typeConfig.xp * level);
     this.speed = typeConfig.speed;
     this.aggroRange = typeConfig.aggroRange;
     this.patrolRange = typeConfig.patrolRange;
@@ -36,11 +41,25 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.lastAttackTime = 0;
     this.lastAbilityTime = 0;
 
+    // LOS throttle: don't ray-cast every single frame
+    this._losTimer   = 0;
+    this._losResult  = false; // cached result
+    this._LOS_INTERVAL = 120; // ms between full ray checks
+
     // Health bar
     this.healthBarBg = scene.add.rectangle(x, y - 12, 16, 3, 0x000000).setDepth(11);
     this.healthBar = scene.add.rectangle(x - 8, y - 12, 16, 3, 0xff0000).setOrigin(0, 0.5).setDepth(11);
     this.healthBarBg.setVisible(false);
     this.healthBar.setVisible(false);
+    
+    // Name label showing level
+    this.nameLabel = scene.add.text(x, y - 22, `${typeConfig.name} (Lv. ${this.level})`, {
+      fontFamily: 'MedievalSharp, serif',
+      fontSize: '7px',
+      color: typeConfig.isBoss ? '#ffd700' : '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(11);
     
     // Tint based on config color if needed, or rely on generated sprite
     this.setTint(typeConfig.color);
@@ -55,6 +74,12 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.healthBar.x = this.x - 8;
     this.healthBar.y = this.y - 12;
 
+    // Update name label position
+    if (this.nameLabel && this.nameLabel.active) {
+      this.nameLabel.x = this.x;
+      this.nameLabel.y = this.y - 22;
+    }
+
     const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
     const time = this.scene.time.now;
 
@@ -67,7 +92,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         for (let i = 0; i < 2; i++) {
           const spawnX = this.x + Phaser.Math.Between(-30, 30);
           const spawnY = this.y + Phaser.Math.Between(-30, 30);
-          const slime = new this.constructor(this.scene, spawnX, spawnY, this.scene.ENEMIES ? this.scene.ENEMIES.SLIME : { name: 'Slime', hp: 20, damage: 3, speed: 40, xp: 10, color: 0x4caf50, size: 12, aggroRange: 80, patrolRange: 60 });
+          const slime = new this.constructor(this.scene, spawnX, spawnY, this.scene.ENEMIES ? this.scene.ENEMIES.SLIME : { name: 'Slime', hp: 20, damage: 3, speed: 40, xp: 10, color: 0x4caf50, size: 12, aggroRange: 80, patrolRange: 60 }, this.level);
           this.scene.enemiesGroup.add(slime);
         }
       } else {
@@ -94,7 +119,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
           const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
           this.body.setVelocity(Math.cos(angle) * (this.speed * 0.5), Math.sin(angle) * (this.speed * 0.5));
         }
-        if (distToPlayer < this.aggroRange) {
+        if (distToPlayer < this.aggroRange && this._hasLineOfSight(player)) {
           this.state = STATES.CHASE;
         }
         break;
@@ -104,13 +129,14 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
           this.state = STATES.IDLE;
           this.stateTimer = time + Phaser.Math.Between(1000, 2000);
         }
-        if (distToPlayer < this.aggroRange) {
+        if (distToPlayer < this.aggroRange && this._hasLineOfSight(player)) {
           this.state = STATES.CHASE;
         }
         break;
 
       case STATES.CHASE:
-        if (distToPlayer > this.aggroRange * 1.5) {
+        // If player ran out of aggro range OR a wall now blocks sight, return to idle
+        if (distToPlayer > this.aggroRange * 1.5 || !this._hasLineOfSight(player)) {
           this.state = STATES.IDLE;
         } else if (distToPlayer < 20) {
           this.state = STATES.ATTACK;
@@ -145,6 +171,58 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         }
         break;
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // LINE-OF-SIGHT  (Bresenham tile ray-cast through mapData)
+  // Returns true if no solid tile blocks the path from enemy to player.
+  // Throttled to _LOS_INTERVAL ms to keep performance light.
+  // ──────────────────────────────────────────────────────────────────────
+  _hasLineOfSight(player) {
+    const now = this.scene.time.now;
+    if (now - this._losTimer < this._LOS_INTERVAL) return this._losResult;
+    this._losTimer = now;
+
+    const mapData = this.scene._mapData;
+    if (!mapData) { this._losResult = true; return true; } // no map yet
+
+    // Convert world coords → tile coords
+    const x0 = Math.floor(this.x / TILE_SIZE);
+    const y0 = Math.floor(this.y / TILE_SIZE);
+    const x1 = Math.floor(player.x / TILE_SIZE);
+    const y1 = Math.floor(player.y / TILE_SIZE);
+
+    // Bresenham's line algorithm
+    let dx =  Math.abs(x1 - x0);
+    let dy = -Math.abs(y1 - y0);
+    let sx = x0 < x1 ? 1 : -1;
+    let sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+
+    let cx = x0;
+    let cy = y0;
+
+    const rows = mapData.length;
+    const cols = mapData[0]?.length ?? 0;
+
+    while (true) {
+      // Skip the enemy's own tile and the player's tile
+      if ((cx !== x0 || cy !== y0) && (cx !== x1 || cy !== y1)) {
+        if (cx < 0 || cy < 0 || cy >= rows || cx >= cols) {
+          this._losResult = false; return false; // out of bounds = blocked
+        }
+        if (SOLID_SET.has(mapData[cy][cx])) {
+          this._losResult = false; return false; // wall tile → blocked
+        }
+      }
+      if (cx === x1 && cy === y1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; cx += sx; }
+      if (e2 <= dx) { err += dx; cy += sy; }
+    }
+
+    this._losResult = true;
+    return true;
   }
 
   takeDamage(amount, knockbackDir) {
@@ -185,6 +263,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.body.setVelocity(0);
     this.healthBarBg.destroy();
     this.healthBar.destroy();
+    if (this.nameLabel) this.nameLabel.destroy();
 
     this.scene.tweens.add({
       targets: this,
@@ -211,5 +290,12 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.destroy();
       }
     });
+  }
+
+  destroy(fromScene) {
+    if (this.healthBarBg && this.healthBarBg.active) this.healthBarBg.destroy();
+    if (this.healthBar && this.healthBar.active) this.healthBar.destroy();
+    if (this.nameLabel && this.nameLabel.active) this.nameLabel.destroy();
+    super.destroy(fromScene);
   }
 }

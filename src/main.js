@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     list.innerHTML = '';
     const statNames = {
       strength: 'Fuerza', resistance: 'Resistencia', dexterity: 'Destreza',
-      speed: 'Velocidad', intelligence: 'Inteligencia', maxMana: 'Mana Máx',
+      speed: 'Velocidad', intelligence: 'Inteligencia', maxMana: 'Maná Máx',
       willpower: 'Voluntad', charisma: 'Carisma'
     };
     for (const [key, val] of Object.entries(stats)) {
@@ -92,14 +92,43 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML += `<div class="stat-row"><span>${statNames[key]}:</span> <span>${val}</span></div>`;
       }
     }
+    // Keep moral row if it was already rendered
+    const moralEl = document.getElementById('hud-moral-row');
+    if (!moralEl) _renderMoralRow(0);
+  });
+
+  function _moralLabel(val) {
+    if (val >=  50) return { text: 'Heroíco 🌟', color: '#ffd700' };
+    if (val >=  10) return { text: 'Bueno ✨',    color: '#2ecc71' };
+    if (val >= -10) return { text: 'Neutral ⚖️',  color: '#aaaaaa' };
+    if (val >= -50) return { text: 'Oscuro ⚫',   color: '#888888' };
+    return                        { text: 'Malévolo 💀', color: '#e94560' };
+  }
+
+  function _renderMoralRow(val) {
+    const list = document.getElementById('hud-stats-list');
+    let moralEl = document.getElementById('hud-moral-row');
+    if (!moralEl) {
+      moralEl = document.createElement('div');
+      moralEl.id = 'hud-moral-row';
+      moralEl.className = 'stat-row';
+      list.appendChild(moralEl);
+    }
+    const { text, color } = _moralLabel(val);
+    const sign = val >= 0 ? '+' : '';
+    moralEl.innerHTML = `<span>Moral:</span> <span style="color:${color}">${sign}${val} ${text}</span>`;
+  }
+
+  game.events.on('update-moral', (val) => {
+    _renderMoralRow(val);
   });
 
   game.events.on('update-gold', (gold) => {
     document.getElementById('hud-gold').innerText = gold;
   });
 
-  game.events.on('update-xp', (xp, maxXp, level) => {
-    document.getElementById('hud-xp').innerText = `${xp}/${maxXp}`;
+  game.events.on('update-xp', (_xp, _maxXp, level) => {
+    // XP numbers are hidden — only show the level (advances via real-world activities)
     document.getElementById('hud-level').innerText = level;
   });
 

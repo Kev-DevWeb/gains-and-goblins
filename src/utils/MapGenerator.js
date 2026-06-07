@@ -3,7 +3,7 @@ import { MAP_WIDTH, MAP_HEIGHT, TILES, ENEMIES } from './constants.js';
 export function generateMap(mapId, width, height) {
   if (mapId === 'deeproot') {
     return _generateDeeproot(width, height);
-  } else if (mapId === 'dungeon') {
+  } else if (mapId === 'cueva_goblin') {
     return _generateDungeon(width, height);
   }
   return _generateGuild(width, height);
@@ -64,8 +64,6 @@ function _generateGuild(width, height) {
 
   // 5. RECEPCIÓN / TIENDA - Centro Arriba
   fillRect(25, 5, 10, 3, TILES.STONE_PATH); 
-  mapData[6][25] = TILES.CHEST;
-  mapData[6][34] = TILES.CHEST;
 
   // 6. ARENA DE ENTRENAMIENTO - Abajo Derecha
   fillRect(35, 30, 23, 12, TILES.ARENA_FLOOR);
@@ -96,6 +94,46 @@ function _generateGuild(width, height) {
   mapData[height - 4][30] = TILES.SIGN; // Cartel de salida al bosque
 
   return mapData;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHEST SPAWN HELPERS
+// Returns an array of { x, y } tile positions for random chest placement.
+// Positions are validated against passable tiles for each map type.
+// ─────────────────────────────────────────────────────────────────────────────
+export function getChestSpawns(mapId, mapData, count = 5) {
+  const height = mapData.length;
+  const width  = mapData[0].length;
+
+  // Define which tile types are valid floors for chest placement per map
+  let validTiles;
+  if (mapId === 'cueva_goblin') {
+    validTiles = new Set([TILES.DUNGEON_FLOOR]);
+  } else if (mapId === 'deeproot') {
+    validTiles = new Set([TILES.GRASS, TILES.GRASS_FLOWER, TILES.DARK_GRASS, TILES.DIRT]);
+  } else {
+    // guild — place on guild floor only, away from walls
+    validTiles = new Set([TILES.GUILD_FLOOR]);
+  }
+
+  // Collect all candidate positions (at least 3 tiles from border to avoid overlap)
+  const candidates = [];
+  const margin = 3;
+  for (let y = margin; y < height - margin; y++) {
+    for (let x = margin; x < width - margin; x++) {
+      if (validTiles.has(mapData[y][x])) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+
+  // Fisher-Yates shuffle then take first `count` items
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  return candidates.slice(0, count);
 }
 
 function _generateDeeproot(width, height) {
@@ -159,13 +197,7 @@ function _generateDeeproot(width, height) {
     }
   }
 
-  // 2 Cofres Escondidos
-  // Esquina superior izquierda
-  mapData[6][6] = TILES.CHEST;
-  // Esquina inferior derecha
-  mapData[height - 7][width - 7] = TILES.CHEST;
-
-  // Cave entrance to the dungeon at the bottom
+  // Cave entrance to the Cueva Goblin at the bottom
   for(let x = 28; x <= 32; x++) {
     mapData[height - 6][x] = TILES.CAVE_ENTRANCE;
     mapData[height - 7][x] = TILES.CAVE_ENTRANCE;
@@ -235,10 +267,10 @@ function _generateDungeon(width, height) {
 export function getSpawnPoint(mapId, spawnId) {
   if (mapId === 'deeproot') {
     if (spawnId === 'from_guild') return { x: 30, y: 6 };
-    if (spawnId === 'from_dungeon') return { x: 30, y: MAP_HEIGHT - 9 };
+    if (spawnId === 'from_cueva_goblin') return { x: 30, y: MAP_HEIGHT - 9 };
     return { x: 30, y: 6 };
   }
-  if (mapId === 'dungeon') {
+  if (mapId === 'cueva_goblin') {
     if (spawnId === 'from_deeproot') return { x: 30, y: 5 }; // Top entrance
     return { x: 30, y: 5 };
   }
@@ -266,7 +298,7 @@ export function getEnemySpawns(mapId) {
       const y = 20 + Math.random() * (MAP_HEIGHT - 30);
       spawns.push({ x, y, type: ENEMIES.GOBLIN });
     }
-  } else if (mapId === 'dungeon') {
+  } else if (mapId === 'cueva_goblin') {
     // Skeletons and Goblins in the corridors
     for (let i = 0; i < 15; i++) {
       spawns.push({ x: 28 + Math.random()*4, y: 10 + Math.random()*10, type: ENEMIES.GOBLIN });
@@ -305,14 +337,14 @@ export function getTransitions(mapId) {
       },
       {
         x: 28, y: MAP_HEIGHT - 6, w: 5, h: 2,
-        targetMap: 'dungeon', targetSpawnId: 'from_deeproot'
+        targetMap: 'cueva_goblin', targetSpawnId: 'from_deeproot'
       }
     ];
-  } else if (mapId === 'dungeon') {
+  } else if (mapId === 'cueva_goblin') {
     return [
       {
         x: 25, y: 0, w: 10, h: 2,
-        targetMap: 'deeproot', targetSpawnId: 'from_dungeon'
+        targetMap: 'deeproot', targetSpawnId: 'from_cueva_goblin'
       }
     ];
   }

@@ -6,7 +6,7 @@ import QuestSystem, { QUEST_STATE } from '../utils/QuestSystem.js';
 import DialogueSystem from '../ui/DialogueSystem.js';
 import ShopSystem from '../ui/ShopSystem.js';
 import DailyMissionSystem from '../utils/DailyMissionSystem.js';
-import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions } from '../utils/MapGenerator.js';
+import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns } from '../utils/MapGenerator.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
 
@@ -56,7 +56,7 @@ export default class WorldScene extends Phaser.Scene {
     this.cameras.main.fadeIn(800, 0, 0, 0);
 
     // ── Zone Title Display ──
-    const zoneNames = { 'guild': 'Gremio de Héroes', 'deeproot': 'Deeproot' };
+    const zoneNames = { 'guild': 'Gremio de Héroes', 'deeproot': 'Deeproot', 'cueva_goblin': 'Cueva Goblin' };
     const titleText = this.add.text(
       (MAP_WIDTH * TILE_SIZE) / 2, 
       this.player.y - 100, 
@@ -94,8 +94,8 @@ export default class WorldScene extends Phaser.Scene {
     // ── UI Scene ──
     this.scene.launch(SCENES.UI);
 
-    // ── Vision System (Dungeon) ──
-    if (this.mapId === 'dungeon') {
+    // ── Vision System (Cueva Goblin) ──
+    if (this.mapId === 'cueva_goblin') {
       this.visionMask = this.make.graphics();
       this.visionMask.fillStyle(0x000000, 0.98); // Very dark
       this.visionMask.fillRect(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
@@ -109,6 +109,9 @@ export default class WorldScene extends Phaser.Scene {
       this.visionMask.setMask(mask);
     }
 
+    // ── Chests (aleatorios con cooldown) ──
+    this._initChests();
+
     // ── New Systems ──
     this.questSystem = new QuestSystem(this.game);
     this.dialogueSystem = new DialogueSystem(this);
@@ -119,7 +122,7 @@ export default class WorldScene extends Phaser.Scene {
     this.dailyMissions.trackVisit(this.mapId);
 
     // ── NPCs ──
-    this.npcsGroup = this.physics.add.group();
+    this.npcsGroup = this.add.group();
     
     if (this.mapId === 'guild') {
       // 1. Villager (Guild Master - Center)
@@ -146,7 +149,10 @@ export default class WorldScene extends Phaser.Scene {
       this.npcsGroup.add(alchemist);
     }
     this.physics.add.collider(this.npcsGroup, this.mapLayer);
-    this.physics.add.collider(this.player, this.npcsGroup);
+    this.physics.add.collider(
+      this.player, this.npcsGroup,
+      (pl, npc) => this._onPlayerNPCCollide(pl, npc)
+    );
 
     // ── Input ──
     this.cursors = this.input.keyboard.addKeys({
@@ -172,19 +178,40 @@ export default class WorldScene extends Phaser.Scene {
     });
 
     // Weapon switching
-    this.cursors.ONE.on('down', () => this.player.switchWeapon(WEAPONS.SWORD.key));
-    this.cursors.TWO.on('down', () => this.player.switchWeapon(WEAPONS.BOW.key));
-    this.cursors.THREE.on('down', () => this.player.switchWeapon(WEAPONS.MAGIC.key));
+    this.cursors.ONE.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.switchWeapon(WEAPONS.SWORD.key);
+    });
+    this.cursors.TWO.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.switchWeapon(WEAPONS.BOW.key);
+    });
+    this.cursors.THREE.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.switchWeapon(WEAPONS.MAGIC.key);
+    });
 
     // Spells (Q and F)
-    this.cursors.Q.on('down', () => this.player.castSpell('shield'));
-    this.cursors.F.on('down', () => this.player.castSpell('ghost_swords'));
+    this.cursors.Q.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.castSpell('shield');
+    });
+    this.cursors.F.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.castSpell('ghost_swords');
+    });
 
     // Dodge Roll (SHIFT)
-    this.cursors.SHIFT.on('down', () => this.player.dodgeRoll());
+    this.cursors.SHIFT.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this.player.dodgeRoll();
+    });
 
     // Interact action (E key)
-    this.cursors.E.on('down', () => this._handleInteraction());
+    this.cursors.E.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this._handleInteraction();
+    });
 
     // ── Interaction prompt ──
     this._interactPrompt = this.add.text(0, 0, 'Presiona E', {
@@ -347,18 +374,29 @@ export default class WorldScene extends Phaser.Scene {
   update() {
     if (this.isTransitioning) return;
 
-    this.player.update(this.cursors);
+    if (this.dialogueSystem && this.dialogueSystem.isActive) {
+      this.player.body.setVelocity(0);
+      this.player.anims.stop();
+      switch (this.player.facing) {
+        case 'down': this.player.setFrame(0); break;
+        case 'left': this.player.setFrame(3); break;
+        case 'right': this.player.setFrame(6); break;
+        case 'up': this.player.setFrame(9); break;
+      }
+    } else {
+      this.player.update(this.cursors);
 
-    // Quick Items (Keyboard Hotkeys)
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.H)) {
-      this.player.consumeItem('potion_hp');
-    }
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.M)) {
-      this.player.consumeItem('potion_mp');
+      // Quick Items (Keyboard Hotkeys)
+      if (this.cursors.H && Phaser.Input.Keyboard.JustDown(this.cursors.H)) {
+        this.player.consumeItem('potion_hp');
+      }
+      if (this.cursors.M && Phaser.Input.Keyboard.JustDown(this.cursors.M)) {
+        this.player.consumeItem('potion_mp');
+      }
     }
 
-    // Update vision eraser in dungeon
-    if (this.visionEraser && this.mapId === 'dungeon') {
+    // Update vision eraser in Cueva Goblin
+    if (this.visionEraser && this.mapId === 'cueva_goblin') {
       this.visionEraser.clear();
       this.visionEraser.fillStyle(0xffffff, 1);
       
@@ -632,11 +670,234 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ========================================================================
+  //  CHEST SYSTEM
+  // ========================================================================
+
+  // Storage key for chest cooldowns across sessions
+  _chestCooldownKey(mapId, x, y) {
+    return `gg_chest_${mapId}_${x}_${y}`;
+  }
+
+  /**
+   * Returns the set of valid floor tile types for chest placement in this map.
+   */
+  _getValidChestTiles() {
+    if (this.mapId === 'cueva_goblin') return new Set([TILES.DUNGEON_FLOOR]);
+    if (this.mapId === 'deeproot')     return new Set([TILES.GRASS, TILES.GRASS_FLOWER, TILES.DARK_GRASS, TILES.DIRT]);
+    return new Set([TILES.GUILD_FLOOR]);
+  }
+
+  /**
+   * Places chests dynamically. Positions are PERSISTED in localStorage so
+   * reloading the page keeps the same spots (and their individual cooldowns).
+   * Positions are regenerated only when all saved spots become invalid tiles.
+   */
+  _initChests() {
+    const CHEST_COUNT = { guild: 4, deeproot: 6, cueva_goblin: 5 };
+    const count = CHEST_COUNT[this.mapId] || 5;
+    const posKey = `gg_chest_pos_${this.mapId}`;
+    const validTiles = this._getValidChestTiles();
+
+    // Try to reuse saved positions (so reloading respects cooldowns)
+    let spawns = null;
+    try {
+      const raw = localStorage.getItem(posKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.length >= count) {
+          spawns = parsed;
+          // Force floor tiles at these positions to avoid wall conflicts
+          const floorTile = this.mapId === 'cueva_goblin' ? TILES.DUNGEON_FLOOR
+                          : this.mapId === 'deeproot'      ? TILES.GRASS
+                          : TILES.GUILD_FLOOR;
+          spawns.forEach(({ x, y }) => {
+            if (this._mapData[y] && this._mapData[y][x] !== undefined) {
+              this._mapData[y][x] = floorTile;
+            }
+          });
+        }
+      }
+    } catch (e) { /* ignore parse errors */ }
+
+    if (!spawns) {
+      // Generate fresh positions and persist them
+      spawns = getChestSpawns(this.mapId, this._mapData, count);
+      try { localStorage.setItem(posKey, JSON.stringify(spawns)); } catch (e) {}
+    }
+
+    this._chestPositions = [];
+    spawns.forEach(({ x, y }) => {
+      const key = this._chestCooldownKey(this.mapId, x, y);
+      const cooldownUntil = parseInt(localStorage.getItem(key) || '0', 10);
+      if (Date.now() >= cooldownUntil) {
+        this._mapData[y][x] = TILES.CHEST;
+        this.mapLayer.putTileAt(TILES.CHEST, x, y);
+        this._chestPositions.push({ x, y });
+      }
+      // On cooldown: leave as floor (generator already set it)
+    });
+  }
+
+  /**
+   * Handles opening a chest tile.
+   * Grants gold (guild: 50-100, deeproot: 40-80, cueva_goblin: 80-150)
+   * and starts 20-minute respawn cooldown stored in localStorage.
+   */
+  _handleChestOpen(tileX, tileY) {
+    const GOLD_RANGES = {
+      guild:       { min: 50,  max: 100 },
+      deeproot:    { min: 40,  max: 80  },
+      cueva_goblin:{ min: 80,  max: 150 },
+    };
+    const range = GOLD_RANGES[this.mapId] || { min: 50, max: 100 };
+    const goldAmount = Phaser.Math.Between(range.min, range.max);
+
+    this.player.addGold(goldAmount);
+
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene && uiScene.showNotification) {
+      uiScene.showNotification(`✨ ¡Cofre! +${goldAmount} Oro`, '#ffd700');
+    }
+
+    // Replace chest tile with appropriate floor
+    const floorTile = this.mapId === 'cueva_goblin' ? TILES.DUNGEON_FLOOR
+                    : this.mapId === 'deeproot'      ? TILES.GRASS
+                    : TILES.GUILD_FLOOR;
+    this._mapData[tileY][tileX] = floorTile;
+    this.mapLayer.putTileAt(floorTile, tileX, tileY);
+
+    // Start 20-minute cooldown
+    const COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
+    const cooldownUntil = Date.now() + COOLDOWN_MS;
+    const key = this._chestCooldownKey(this.mapId, tileX, tileY);
+    localStorage.setItem(key, String(cooldownUntil));
+
+    // Schedule visual re-spawn if the player stays in the map that long
+    this.time.delayedCall(COOLDOWN_MS, () => {
+      if (!this.scene.isActive(SCENES.WORLD)) return;
+      if (this._mapData[tileY][tileX] !== floorTile && this._mapData[tileY][tileX] !== TILES.CHEST) return;
+      // Remove cooldown key so a page reload ALSO shows the chest
+      localStorage.removeItem(key);
+      this._mapData[tileY][tileX] = TILES.CHEST;
+      this.mapLayer.putTileAt(TILES.CHEST, tileX, tileY);
+      if (uiScene && uiScene.showNotification) {
+        uiScene.showNotification('📦 ¡Un cofre ha reaparecido cerca!', '#c4a35a');
+      }
+    });
+
+    // Gold sparkle effect
+    const particles = this.add.particles(0, 0, 'particle_gold', {
+      speed: { min: 20, max: 60 },
+      scale: { start: 1, end: 0 },
+      lifespan: 600,
+      quantity: 12
+    });
+    particles.explode(12, tileX * TILE_SIZE + 8, tileY * TILE_SIZE + 8);
+
+    SaveSystem.save(this.player.getSaveData());
+  }
+
+  // ========================================================================
+  //  NPC PUSH / MORAL SYSTEM
+  // ========================================================================
+
+  /**
+   * Called every frame the player overlaps with an NPC.
+   * Debounced and windowed: 2 bumps within 8 s triggers a scolding.
+   */
+  _onPlayerNPCCollide(player, npc) {
+    const now     = this.time.now;
+    const DEBOUNCE     = 900;   // min ms between counted bumps
+    const WINDOW       = 8000;  // time window for 2 bumps to count
+    const SCOLD_PAUSE  = 7000;  // silence period after a scolding
+
+    // Still in post-scold cooldown
+    if (now - npc._scoldedAt < SCOLD_PAUSE) return;
+    // Too soon after last bump
+    if (now - npc._lastBumpTime < DEBOUNCE) return;
+
+    // Reset window if too much time passed since first bump
+    if (now - npc._firstBumpTime > WINDOW) {
+      npc._bumpCount    = 0;
+      npc._firstBumpTime = now;
+    }
+
+    npc._bumpCount++;
+    npc._lastBumpTime = now;
+
+    if (npc._bumpCount >= 2) {
+      npc._bumpCount = 0;
+      npc._scoldedAt = now;
+      this._scoldPlayerByNPC(npc);
+    }
+  }
+
+  /**
+   * NPC scolding dialogue + moral penalty.
+   */
+  _scoldPlayerByNPC(npc) {
+    if (this.dialogueSystem.isActive) return;
+
+    const DIALOGUES = {
+      tutorial: [
+        '¡Oye! ¿Qué te pasa? ¡Para de empujarme!',
+        'Ese comportamiento no es digno de un héroe.',
+        'El Gremio espera más de ti. Tu reputación ha caído.',
+      ],
+      smith: [
+        '¡Dos veces! ¡La próxima te aplano con el martillo!',
+        'Los héroes de verdad no molestan a los artesanos.',
+        'Me haré el sordo cuando pidas armas nuevas...',
+      ],
+      shop: [
+        '¡Empújame otra vez y no te vendo ni agua!',
+        'Compro y vendo a gente de bien, no a rufianes.',
+        'Tu nombre empieza a sonar mal en el mercado.',
+      ],
+    };
+
+    const lines = DIALOGUES[npc.npcConfig.dialogueKey] ?? [
+      '¡Deja de empujarme!',
+      'Ese comportamiento tiene consecuencias.',
+      'Tu alineación moral ha caído.',
+    ];
+
+    // Stop player and face the NPC
+    this.player.body.setVelocity(0);
+    this.dialogueSystem.show(npc.npcConfig.name, lines);
+
+    // Apply moral penalty
+    this.player.addMoral(-10);
+
+    // Dark screen flash
+    this.cameras.main.flash(350, 30, 0, 0);
+
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene?.showNotification) {
+      const moralVal = this.player.moral;
+      const sign  = moralVal >= 0 ? '+' : '';
+      const label = moralVal >= 50  ? 'Heroíco 🌟'
+                  : moralVal >= 10  ? 'Bueno ✨'
+                  : moralVal >= -10 ? 'Neutral ⚖️'
+                  : moralVal >= -50 ? 'Oscuro ⚫'
+                  :                   'Malévolo 💀';
+      uiScene.showNotification(
+        `⚫ Reputación: ${sign}${moralVal} — ${label}`,
+        '#777777'
+      );
+    }
+  }
+
+  // ========================================================================
   //  ENEMY SPAWNING / RESPAWN
   // ========================================================================
   _spawnEnemies() {
     this._enemySpawnData.forEach(spawn => {
-      const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type);
+      let level = 1;
+      if (this.mapId === 'guild' && this.player) {
+        level = this.player.level;
+      }
+      const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type, level);
       this.enemiesGroup.add(enemy);
     });
   }
@@ -650,7 +911,11 @@ export default class WorldScene extends Phaser.Scene {
       const toSpawn = Math.min(3, targetCount - currentCount); // max 3 at a time
       for (let i = 0; i < toSpawn; i++) {
         const spawn = Phaser.Utils.Array.GetRandom(this._enemySpawnData);
-        const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type);
+        let level = 1;
+        if (this.mapId === 'guild' && this.player) {
+          level = this.player.level;
+        }
+        const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type, level);
         this.enemiesGroup.add(enemy);
 
         // Fade-in effect
@@ -746,28 +1011,7 @@ export default class WorldScene extends Phaser.Scene {
     const uiScene = this.scene.get(SCENES.UI);
 
     if (tile.tileType === TILES.CHEST) {
-      // Give random gold only
-      const goldAmount = Phaser.Math.Between(50, 100);
-      this.player.addGold(goldAmount);
-
-      if (uiScene && uiScene.showNotification) {
-        uiScene.showNotification(`¡Cofre! +${goldAmount} Oro`, '#ffd700');
-      }
-
-      // Change chest to grass (opened)
-      this._mapData[tile.y][tile.x] = TILES.GRASS;
-      this.mapLayer.putTileAt(TILES.GRASS, tile.x, tile.y);
-
-      // Sparkle particles
-      const particles = this.add.particles(0, 0, 'particle_gold', {
-        speed: { min: 20, max: 60 },
-        scale: { start: 1, end: 0 },
-        lifespan: 600,
-        quantity: 10
-      });
-      particles.explode(10, tile.x * TILE_SIZE + 8, tile.y * TILE_SIZE + 8);
-
-      SaveSystem.save(this.player.getSaveData());
+      this._handleChestOpen(tile.x, tile.y);
 
     } else if (tile.tileType === TILES.SIGN) {
       // Show a tutorial message

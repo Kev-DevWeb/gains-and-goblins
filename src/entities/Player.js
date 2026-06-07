@@ -30,6 +30,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.lastDeathTime = 0;
     this.consecutiveDeaths = 0;
 
+    // Moral alignment: -100 (evil) ↔ +100 (heroic)
+    this.moral = 0;
+
     // Branch points (unspent) — Fable-style
     this.branchPoints = { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
 
@@ -127,10 +130,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     // Apply speed penalty if charging bow
-    let currentSpeed = PLAYER_SPEED;
+    let currentSpeed = PLAYER_SPEED + (this.stats.speed - 5) * 4;
     if (this.isCharging && this.currentWeaponKey === WEAPONS.BOW.key) {
       const chargeDur = this.scene.time.now - this.chargeStartTime;
-      if (chargeDur > 300) currentSpeed = PLAYER_SPEED * 0.5; // 50% slow down
+      if (chargeDur > 300) currentSpeed = (PLAYER_SPEED + (this.stats.speed - 5) * 4) * 0.5; // 50% slow down
     }
 
     if (cursors.left.isDown || cursors.A.isDown) {
@@ -246,10 +249,24 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.scene.game.events.emit('update-affinity', this.dominantBranch, { ...counts });
   }
 
+  getAttackCooldown() {
+    if (this.currentWeaponKey === WEAPONS.SWORD.key) {
+      // Base sword cooldown is longer (lower attack speed), e.g. 800ms.
+      // Every point of the 'speed' stat (starts at 5) reduces the cooldown by 40ms.
+      // At speed = 5, cooldown is 800ms.
+      // At speed = 15, cooldown is 800 - 10*40 = 400ms.
+      // Minimum cooldown is 250ms.
+      const baseCooldown = 800;
+      const speedBonus = (this.stats.speed - 5) * 40;
+      return Math.max(250, baseCooldown - speedBonus);
+    }
+    return PLAYER_ATTACK_COOLDOWN;
+  }
+
   beginCharge() {
     if (this.isDead) return;
     const time = this.scene.time.now;
-    if (time < this.lastAttackTime + PLAYER_ATTACK_COOLDOWN) return;
+    if (time < this.lastAttackTime + this.getAttackCooldown()) return;
 
     this.isCharging = true;
     this.chargeStartTime = time;
@@ -272,7 +289,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.isDead) return;
 
     const time = this.scene.time.now;
-    if (time < this.lastAttackTime + PLAYER_ATTACK_COOLDOWN) return;
+    if (time < this.lastAttackTime + this.getAttackCooldown()) return;
 
     const chargeTime = time - this.chargeStartTime;
 
@@ -537,6 +554,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   /**
+   * Modifies the player's moral alignment.
+   * @param {number} delta Positive = good deed, negative = evil deed.
+   */
+  addMoral(delta) {
+    this.moral = Math.max(-100, Math.min(100, this.moral + delta));
+    this.scene.game.events.emit('update-moral', this.moral);
+  }
+
+  /**
    * Called when an activity gives XP to a specific stat.
    * Each activity raises the corresponding stat by 1.
    */
@@ -701,6 +727,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       branchPoints: this.branchPoints,
       lastDeathTime: this.lastDeathTime,
       consecutiveDeaths: this.consecutiveDeaths,
+      moral: this.moral,
     };
   }
 
@@ -728,6 +755,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.branchPoints = data.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
     this.lastDeathTime = data.lastDeathTime || 0;
     this.consecutiveDeaths = data.consecutiveDeaths || 0;
+    this.moral = data.moral ?? 0;
     // Restart mana regen with loaded willpower stat
     this._startManaRegen();
   }

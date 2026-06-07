@@ -10,9 +10,19 @@ export default class NPC extends Phaser.Physics.Arcade.Sprite {
     this.spawnPoint = { x, y };
 
     this.body.setImmovable(true);
+    if (typeof this.body.setPushable === 'function') {
+      this.body.setPushable(false);
+    }
+    this.body.setMaxVelocity(25, 25);
     this.body.setSize(10, 14);
     this.body.setOffset(3, 10);
     this.setDepth(10);
+
+    // Bump counter for moral system
+    this._bumpCount    = 0;
+    this._firstBumpTime = 0;
+    this._lastBumpTime  = 0;
+    this._scoldedAt    = 0;
 
     // Name label
     this.nameLabel = scene.add.text(x, y - 18, config.name, {
@@ -75,12 +85,17 @@ export default class NPC extends Phaser.Physics.Arcade.Sprite {
         }
       }
       
-      // Stop if reached target or too far
+      // Stop if reached target or too far (only if moving away from spawn)
       const distFromSpawn = Phaser.Math.Distance.Between(this.x, this.y, this.spawnPoint.x, this.spawnPoint.y);
       if (distFromSpawn > this.wanderRadius + 10) {
-        this.body.setVelocity(0);
-        this.anims.stop();
-        this.setFrame(0);
+        const dx = this.x - this.spawnPoint.x;
+        const dy = this.y - this.spawnPoint.y;
+        const dot = dx * this.body.velocity.x + dy * this.body.velocity.y;
+        if (dot > 0) {
+          this.body.setVelocity(0);
+          this.anims.stop();
+          this.setFrame(0);
+        }
       }
     }
 

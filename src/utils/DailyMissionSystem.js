@@ -14,10 +14,10 @@ const MISSION_POOL = [
   { id: 'kill_goblins_daily',   type: 'kill',     target: 'Goblin',    count: 5,  title: 'Patrulla Goblin',      desc: 'Derrota 5 Goblins en Deeproot.',       reward: { gold: 90 },                  zone: 'deeproot', icon: '👺' },
   { id: 'kill_skeletons_daily', type: 'kill',     target: 'Esqueleto', count: 3,  title: 'Los Muertos Inquietos', desc: 'Destruye 3 Esqueletos en la Arena.',       reward: { gold: 120 },                 zone: 'guild',     icon: '💀' },
   { id: 'kill_mixed_daily',     type: 'kill',     target: 'Goblin',    count: 3,  title: 'Limpieza Total',       desc: 'Elimina 3 Goblins y 5 Slimes.',            reward: { gold: 100 },                 zone: 'deeproot', icon: '⚔️',  extraKill: { target: 'Slime', count: 5 } },
-  { id: 'kill_boss_daily',      type: 'kill',     target: 'Rey Goblin',     count: 1, title: 'Asesino de Reyes',         desc: 'Derrota al Rey Goblin en la Mazmorra.',         reward: { gold: 300, branchBonus: 'strength' }, zone: 'dungeon', icon: '👑' },
+  { id: 'kill_boss_daily',      type: 'kill',     target: 'Rey Goblin',     count: 1, title: 'Asesino de Reyes',         desc: 'Derrota al Rey Goblin en la Cueva Goblin.',         reward: { gold: 300, branchBonus: 'strength' }, zone: 'cueva_goblin', icon: '👑' },
 
   // Visit missions
-  { id: 'visit_dungeon',        type: 'visit',    target: 'dungeon',   count: 1,  title: 'Valiente',             desc: 'Adéntrate en la Mazmorra.',                reward: { gold: 40 },                  zone: null,    icon: '🦇' },
+  { id: 'visit_dungeon',        type: 'visit',    target: 'cueva_goblin',   count: 1,  title: 'Valiente',             desc: 'Adéntrate en la Cueva Goblin.',                reward: { gold: 40 },                  zone: null,    icon: '🦇' },
   { id: 'visit_deeproot',       type: 'visit',    target: 'deeproot',  count: 1,  title: 'Explorador',           desc: 'Visita Deeproot hoy.',                     reward: { gold: 25 },                  zone: null,    icon: '🌲' },
   { id: 'visit_arena',          type: 'visit',    target: 'guild',     count: 1,  title: 'Al Entrenamiento',     desc: 'Derrota un enemigo en la Arena del Gremio.', reward: { gold: 30 },                zone: null,    icon: '🏟️', subType: 'arena_kill' },
 
