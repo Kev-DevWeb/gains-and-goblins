@@ -314,7 +314,7 @@ export default class WorldScene extends Phaser.Scene {
       }
 
       // Auto-save after activity
-      SaveSystem.save(this.player.getSaveData());
+      SaveSystem.save(this.player.getSaveData(), { type: activityId, xpEarned: activity.xpReward });
     });
 
     // Handle player death (for camera effects)
@@ -367,6 +367,62 @@ export default class WorldScene extends Phaser.Scene {
         SaveSystem.save(this.player.getSaveData());
       },
       loop: true
+    });
+
+    // Listen to online database updates
+    this._characterSyncedListener = (e) => {
+      const { character, blockedLevelUp, requiredStatValue, decayApplied } = e.detail;
+      if (character && this.player) {
+        this.player.level = character.level;
+        
+        // Sync stats
+        this.player.stats = {
+          strength: character.strength,
+          resistance: character.resistance,
+          dexterity: character.dexterity,
+          speed: character.speed,
+          intelligence: character.intelligence,
+          maxMana: character.maxMana,
+          willpower: character.willpower,
+          charisma: character.charisma
+        };
+        
+        this.player.xp = character.xp;
+        this.player.gold = character.gold;
+        this.player.moral = character.moral;
+        this.player.inventory = character.inventory || [];
+        this.player.branchPoints = character.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
+
+        // Recalculate max HP and Mana
+        this.player.maxHp = character.resistance * 10;
+        this.player.maxMana = character.maxMana;
+        
+        // Emit events to update HUD UI
+        this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
+        this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+        this.game.events.emit('update-stats', this.player.stats);
+        this.game.events.emit('update-gold', this.player.gold);
+        this.game.events.emit('update-xp', this.player.xp, this.player.level * 50, this.player.level);
+        this.game.events.emit('update-inventory', this.player.inventory);
+        this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
+
+        // Show notifications if applicable
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene && uiScene.showNotification) {
+          if (decayApplied) {
+            uiScene.showNotification("Tus stats bajaron 1 punto por falta de actividades esta semana.", "#e94560");
+          }
+          if (blockedLevelUp) {
+            uiScene.showNotification(`Nivel bloqueado: sube todos tus atributos a ${requiredStatValue} para subir nivel.`, "#e94560");
+          }
+        }
+      }
+    };
+    window.addEventListener('character-synced', this._characterSyncedListener);
+
+    // Clean up event listener when scene shuts down
+    this.events.once('shutdown', () => {
+      window.removeEventListener('character-synced', this._characterSyncedListener);
     });
   }
 

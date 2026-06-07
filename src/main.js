@@ -4,6 +4,7 @@ import MenuScene from './scenes/MenuScene.js';
 import WorldScene from './scenes/WorldScene.js';
 import UIScene from './scenes/UIScene.js';
 import { GAME_WIDTH, GAME_HEIGHT, ACTIVITIES } from './utils/constants.js';
+import SaveSystem from './utils/SaveSystem.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -21,10 +22,93 @@ const config = {
   scene: [BootScene, MenuScene, WorldScene, UIScene]
 };
 
-const game = new Phaser.Game(config);
+let game = null;
 
-// Setup Activity Tracker Modal UI
-document.addEventListener('DOMContentLoaded', () => {
+function initGame() {
+  if (game) return;
+  game = new Phaser.Game(config);
+  setupGameEventListeners();
+}
+
+// Setup Activity Tracker Modal UI & Auth Flow
+document.addEventListener('DOMContentLoaded', async () => {
+  const authModal = document.getElementById('auth-modal');
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const formLogin = document.getElementById('form-login');
+  const formRegister = document.getElementById('form-register');
+  const authErrorMsg = document.getElementById('auth-error-msg');
+  
+  // Tab Switchers
+  tabLogin.onclick = () => {
+    tabLogin.classList.add('active');
+    tabRegister.classList.remove('active');
+    formLogin.classList.remove('hidden');
+    formRegister.classList.add('hidden');
+    authErrorMsg.innerText = '';
+  };
+
+  tabRegister.onclick = () => {
+    tabRegister.classList.add('active');
+    tabLogin.classList.remove('active');
+    formRegister.classList.remove('hidden');
+    formLogin.classList.add('hidden');
+    authErrorMsg.innerText = '';
+  };
+
+  // Submit handlers
+  formLogin.onsubmit = async (e) => {
+    e.preventDefault();
+    authErrorMsg.innerText = 'Cargando...';
+    authErrorMsg.style.color = 'var(--clr-gold)';
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    
+    const result = await SaveSystem.login(email, password);
+    if (result.success) {
+      authModal.classList.add('hidden');
+      initGame();
+    } else {
+      authErrorMsg.innerText = result.error || 'Error al iniciar sesión';
+      authErrorMsg.style.color = 'var(--clr-crimson)';
+    }
+  };
+
+  formRegister.onsubmit = async (e) => {
+    e.preventDefault();
+    authErrorMsg.innerText = 'Forjando personaje...';
+    authErrorMsg.style.color = 'var(--clr-gold)';
+    const name = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    
+    const result = await SaveSystem.register(email, password, name);
+    if (result.success) {
+      authModal.classList.add('hidden');
+      initGame();
+    } else {
+      authErrorMsg.innerText = result.error || 'Error al registrar';
+      authErrorMsg.style.color = 'var(--clr-crimson)';
+    }
+  };
+
+  // Check if already authenticated
+  const userId = SaveSystem.getUserId();
+  if (userId) {
+    authErrorMsg.innerText = 'Autenticando sesión previa...';
+    authErrorMsg.style.color = 'var(--clr-gold)';
+    const character = await SaveSystem.loadFromServer();
+    if (character) {
+      authModal.classList.add('hidden');
+      initGame();
+    } else {
+      authErrorMsg.innerText = 'Sesión previa expirada. Inicia sesión.';
+      authErrorMsg.style.color = 'var(--clr-crimson)';
+      SaveSystem.deleteSave();
+    }
+  }
+
+  // Setup Activity Tracker Modal UI
   const modal = document.getElementById('activity-modal');
   const closeBtn = document.getElementById('close-modal-btn');
   const grid = document.getElementById('activities-grid');
@@ -35,11 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.className = 'activity-btn';
     btn.innerHTML = `
       <div class="act-name">${activity.name}</div>
-      <div class="act-reward">+${activity.xpReward} ${activity.stat}</div>
+      <div class="act-reward">+${activity.xpReward} XP (${activity.branch})</div>
     `;
     btn.onclick = () => {
       // Emit to Phaser
-      game.events.emit('activity-logged', activity.id);
+      if (game) game.events.emit('activity-logged', activity.id);
       modal.classList.add('hidden');
     };
     grid.appendChild(btn);
@@ -49,6 +133,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Open modal with 'L' key globally
   document.addEventListener('keydown', (e) => {
+    // Ignore global shortcuts when typing inside form inputs
+    if (document.activeElement.tagName === 'INPUT') return;
+
     // If pressing L, toggle modal
     if (e.key.toLowerCase() === 'l') {
       modal.classList.toggle('hidden');
@@ -68,8 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-about').onclick = () => document.getElementById('about-modal').classList.toggle('hidden');
 
   // Quick Use Clicks
-  document.getElementById('quick-hp').onclick = () => game.events.emit('quick-use-hp');
-  document.getElementById('quick-mp').onclick = () => game.events.emit('quick-use-mp');
+  document.getElementById('quick-hp').onclick = () => { if (game) game.events.emit('quick-use-hp'); };
+  document.getElementById('quick-mp').onclick = () => { if (game) game.events.emit('quick-use-mp'); };
 
   document.querySelectorAll('.close-btn[data-target]').forEach(btn => {
     btn.onclick = (e) => {
@@ -77,8 +164,9 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById(targetId).classList.add('hidden');
     };
   });
+});
 
-  // Phaser Events -> HTML HUD sync
+function setupGameEventListeners() {
   game.events.on('update-stats', (stats) => {
     const list = document.getElementById('hud-stats-list');
     list.innerHTML = '';
@@ -128,7 +216,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   game.events.on('update-xp', (_xp, _maxXp, level) => {
-    // XP numbers are hidden — only show the level (advances via real-world activities)
     document.getElementById('hud-level').innerText = level;
   });
 
@@ -158,7 +245,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('count-hp').innerText = hpCount;
     document.getElementById('count-mp').innerText = mpCount;
   });
-
-});
+}
 
 export default game;

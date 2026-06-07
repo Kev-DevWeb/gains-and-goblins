@@ -644,7 +644,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
     // Update overall XP bar (for level indicator)
     this.xp += xpAmount;
-    this.level += 1;
     this.scene.game.events.emit('update-xp', this.xp, this.level * 50, this.level);
     this.scene.game.events.emit('update-branch-points', { ...this.branchPoints });
 

@@ -129,6 +129,49 @@
       </div>
     </div>
   </div>
+
+  <!-- Auth Modal (Registration & Login) -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-content glass-panel" style="max-width: 400px;">
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active">Iniciar Sesión</button>
+        <button id="tab-register" class="auth-tab">Crear Cuenta</button>
+      </div>
+      
+      <!-- Login Form -->
+      <form id="form-login" class="auth-form">
+        <div class="auth-input-group">
+          <label class="auth-label" for="login-email">Correo Electrónico</label>
+          <input class="auth-input" type="email" id="login-email" required placeholder="correo@ejemplo.com" />
+        </div>
+        <div class="auth-input-group">
+          <label class="auth-label" for="login-password">Contraseña</label>
+          <input class="auth-input" type="password" id="login-password" required placeholder="••••••••" />
+        </div>
+        <button type="submit" class="auth-submit-btn">Entrar al Gremio</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="form-register" class="auth-form hidden">
+        <div class="auth-input-group">
+          <label class="auth-label" for="register-name">Nombre de Héroe</label>
+          <input class="auth-input" type="text" id="register-name" required placeholder="Grommash" />
+        </div>
+        <div class="auth-input-group">
+          <label class="auth-label" for="register-email">Correo Electrónico</label>
+          <input class="auth-input" type="email" id="register-email" required placeholder="correo@ejemplo.com" />
+        </div>
+        <div class="auth-input-group">
+          <label class="auth-label" for="register-password">Contraseña</label>
+          <input class="auth-input" type="password" id="register-password" required placeholder="••••••••" />
+        </div>
+        <button type="submit" class="auth-submit-btn">Forjar Personaje</button>
+      </form>
+
+      <div id="auth-error-msg" class="auth-error"></div>
+    </div>
+  </div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

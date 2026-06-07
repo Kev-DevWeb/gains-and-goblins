@@ -1117,3 +1117,80 @@ body {
   background: rgba(255, 215, 0, 0.2);
   color: #fff;
 }
+
+/* ── Auth Modal styles ── */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.auth-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.auth-label {
+  font-family: var(--font-title);
+  color: var(--ui-text-body);
+  font-size: 0.9rem;
+}
+.auth-input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--ui-border);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: var(--border-radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.auth-input:focus {
+  border-color: var(--clr-gold);
+}
+.auth-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--ui-border);
+  margin-bottom: 12px;
+}
+.auth-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--ui-text-dim);
+  font-family: var(--font-title);
+  font-size: 1.1rem;
+  padding: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+.auth-tab.active {
+  color: var(--clr-gold);
+  border-bottom: 2px solid var(--clr-gold);
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+.auth-submit-btn {
+  background: var(--clr-brown);
+  border: 1px solid var(--clr-tan);
+  color: #fff;
+  font-family: var(--font-title);
+  font-size: 1.2rem;
+  padding: 10px;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+.auth-submit-btn:hover {
+  background: var(--clr-gold-dim);
+  box-shadow: var(--ui-glow-gold);
+}
+.auth-error {
+  color: var(--clr-crimson);
+  font-size: 0.85rem;
+  text-align: center;
+  min-height: 1.2rem;
+}
+
