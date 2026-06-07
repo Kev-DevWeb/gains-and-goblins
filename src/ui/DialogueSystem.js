@@ -152,6 +152,22 @@ export default class DialogueSystem {
     // Don't advance if we are showing choices
     if (this.choicesEl.children.length > 0) return;
 
+    // Dopamine-chasing check: skip dialogues too fast
+    const now = this.scene.time.now;
+    const elapsed = now - this.lastLineStartTime;
+    
+    if (elapsed < 400) {
+      this.fastSkipCount = (this.fastSkipCount || 0) + 1;
+    } else {
+      this.fastSkipCount = Math.max(0, (this.fastSkipCount || 0) - 1);
+    }
+
+    if (this.fastSkipCount >= 3) {
+      this.fastSkipCount = 0;
+      this.triggerReprimand();
+      return;
+    }
+
     if (this.isTyping) {
       // Skip typing, show full line immediately
       clearInterval(this.typeTimer);
@@ -171,9 +187,39 @@ export default class DialogueSystem {
     }
   }
 
+  triggerReprimand() {
+    if (this.typeTimer) clearInterval(this.typeTimer);
+
+    // Subtract player moral/reputation
+    if (this.scene.player) {
+      this.scene.player.addMoral(-5);
+      const uiScene = this.scene.scene.get('UI');
+      if (uiScene?.showNotification) {
+        uiScene.showNotification('⚫ Moralidad reducida (-5) por impaciencia', '#ff4444');
+      }
+    }
+
+    const currentNpc = this.nameEl.textContent;
+    this.nameEl.textContent = `😡 ${currentNpc} (Enojado)`;
+    this.choicesEl.innerHTML = '';
+
+    const reprimands = [
+      "¡Oye! ¡Presta atención cuando te hablo! No vengas aquí con prisas y sin respeto.",
+      "¡Deja de saltarte mis palabras! Si no tienes la disciplina de leer, no mereces mi tiempo. ¡Vuelve a empezar!",
+      "¡Suficiente! Veo que solo buscas descargas rápidas de dopamina. Vuelve a iniciar la conversación y lee con atención."
+    ];
+    const text = reprimands[Math.floor(Math.random() * reprimands.length)];
+
+    this.lines = [text];
+    this.currentLineIndex = 0;
+    this.onComplete = null; // Clear callbacks so they don't get the quest/items
+    this._typeLine();
+  }
+
   _typeLine(onLineComplete = null) {
     if (this.typeTimer) clearInterval(this.typeTimer);
     
+    this.lastLineStartTime = this.scene.time.now;
     this.indicatorEl.classList.remove('visible');
     this.textEl.textContent = '';
     const line = this.lines[this.currentLineIndex];
@@ -181,6 +227,10 @@ export default class DialogueSystem {
     this.isTyping = true;
     
     this.typeTimer = setInterval(() => {
+      if (!this.isActive) {
+        clearInterval(this.typeTimer);
+        return;
+      }
       this.textEl.textContent += line[this.charIndex];
       this.charIndex++;
       

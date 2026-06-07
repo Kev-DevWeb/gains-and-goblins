@@ -144,12 +144,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key.toLowerCase() === 'i') {
       document.getElementById('inventory-panel').classList.toggle('hidden');
     }
+    // If pressing J, toggle quests
+    if (e.key.toLowerCase() === 'j') {
+      document.getElementById('quests-panel').classList.toggle('hidden');
+    }
   });
 
   // HUD Button Controls
   document.getElementById('btn-habits').onclick = () => modal.classList.toggle('hidden');
   document.getElementById('btn-stats').onclick = () => document.getElementById('stats-panel').classList.toggle('hidden');
   document.getElementById('btn-inventory').onclick = () => document.getElementById('inventory-panel').classList.toggle('hidden');
+  document.getElementById('btn-quests').onclick = () => document.getElementById('quests-panel').classList.toggle('hidden');
   document.getElementById('btn-help').onclick = () => document.getElementById('help-panel').classList.toggle('hidden');
   document.getElementById('btn-privacy').onclick = () => document.getElementById('privacy-modal').classList.toggle('hidden');
   document.getElementById('btn-about').onclick = () => document.getElementById('about-modal').classList.toggle('hidden');
@@ -244,6 +249,53 @@ function setupGameEventListeners() {
 
     document.getElementById('count-hp').innerText = hpCount;
     document.getElementById('count-mp').innerText = mpCount;
+  });
+
+  game.events.on('update-quests', (activeDailies, activeMains) => {
+    const dailyList = document.getElementById('daily-quests-list');
+    dailyList.innerHTML = '';
+    if (activeDailies.length === 0) {
+      dailyList.innerHTML = '<div style="color: #8b8b8b; font-size: 0.8rem; padding: 4px;">No hay misiones diarias activas. Visita el tablón en el Gremio para aceptar algunas hoy.</div>';
+    } else {
+      activeDailies.forEach(m => {
+        const progressVal = m.extraKill
+          ? `${m.current}/${m.count} + ${m.extraProgress}/${m.extraKill.count}`
+          : `${m.current}/${m.count}`;
+        const statusText = m.completed 
+          ? '<span style="color: #2ecc71; font-weight: bold;">🎁 Completada!</span>' 
+          : `<span style="color: #ffd700; font-weight: bold;">${progressVal}</span>`;
+        dailyList.innerHTML += `
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,215,0,0.15); padding: 6px; border-radius: 4px; font-size: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <span style="font-weight: bold; color: #ffd700;">${m.icon} ${m.title}</span>
+              <span>${statusText}</span>
+            </div>
+            <div style="color: #bbbbcc; font-size: 0.75rem;">${m.desc}</div>
+          </div>
+        `;
+      });
+    }
+
+    const mainList = document.getElementById('main-quests-list');
+    mainList.innerHTML = '';
+    if (activeMains.length === 0) {
+      mainList.innerHTML = '<div style="color: #8b8b8b; font-size: 0.8rem; padding: 4px;">No hay misiones principales activas. Habla con el Maestro.</div>';
+    } else {
+      activeMains.forEach(q => {
+        const statusText = q.state === 'complete' 
+          ? '<span style="color: #2ecc71; font-weight: bold;">¡Lista!</span>' 
+          : `<span style="color: #ffd700; font-weight: bold;">${q.progress}/${q.objective.required}</span>`;
+        mainList.innerHTML += `
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(155,89,182,0.25); padding: 6px; border-radius: 4px; font-size: 0.8rem;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+              <span style="font-weight: bold; color: #a855f7;">📜 ${q.title}</span>
+              <span>${statusText}</span>
+            </div>
+            <div style="color: #bbbbcc; font-size: 0.75rem;">${q.desc}</div>
+          </div>
+        `;
+      });
+    }
   });
 }
 

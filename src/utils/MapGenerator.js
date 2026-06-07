@@ -58,6 +58,9 @@ function _generateGuild(width, height) {
     mapData[5][x] = TILES.BOOKSHELF;
     mapData[12][x] = TILES.BOOKSHELF;
   }
+  // Colocar mesas de estudio (con silla y libro mágico)
+  mapData[8][48] = TILES.STUDY_TABLE;
+  mapData[8][52] = TILES.STUDY_TABLE;
 
   // 4. ZONA DE MEDITACIÓN (Voluntad - Alfombras) - Medio Derecha
   fillRect(width - 15, 18, 10, 8, TILES.MEDITATION_MAT);
@@ -286,27 +289,51 @@ export function getEnemySpawns(mapId) {
   const spawns = [];
   
   if (mapId === 'deeproot') {
-    // Deeproot is full of slimes
-    for(let i=0; i < 40; i++) {
+    // Deeproot has reduced slimes (18 instead of 40)
+    for(let i=0; i < 18; i++) {
       const x = 5 + Math.random() * (MAP_WIDTH - 10);
       const y = 8 + Math.random() * (MAP_HEIGHT - 16);
       spawns.push({ x, y, type: ENEMIES.SLIME });
     }
-    // And some goblins in the deep forest
-    for(let i=0; i < 10; i++) {
+    // Reduced melee Goblins (5 instead of 10)
+    for(let i=0; i < 5; i++) {
       const x = 10 + Math.random() * (MAP_WIDTH - 20);
       const y = 20 + Math.random() * (MAP_HEIGHT - 30);
       spawns.push({ x, y, type: ENEMIES.GOBLIN });
     }
+    // Added a few Goblin Archers in deeproot (3)
+    for(let i=0; i < 3; i++) {
+      const x = 10 + Math.random() * (MAP_WIDTH - 20);
+      const y = 15 + Math.random() * (MAP_HEIGHT - 25);
+      spawns.push({ x, y, type: ENEMIES.GOBLIN_BOW });
+    }
+    // Added a few Goblin Mages in deeproot (2)
+    for(let i=0; i < 2; i++) {
+      const x = 15 + Math.random() * (MAP_WIDTH - 30);
+      const y = 15 + Math.random() * (MAP_HEIGHT - 25);
+      spawns.push({ x, y, type: ENEMIES.GOBLIN_MAGE });
+    }
   } else if (mapId === 'cueva_goblin') {
-    // Skeletons and Goblins in the corridors
-    for (let i = 0; i < 15; i++) {
-      spawns.push({ x: 28 + Math.random()*4, y: 10 + Math.random()*10, type: ENEMIES.GOBLIN });
+    // Melee goblins - moved out of the entrance corridor
+    for (let i = 0; i < 3; i++) {
+      spawns.push({ x: 36 + Math.random()*8, y: 13 + Math.random()*4, type: ENEMIES.GOBLIN });
     }
-    for (let i = 0; i < 10; i++) {
-      spawns.push({ x: 12 + Math.random()*6, y: 26 + Math.random()*6, type: ENEMIES.SKELETON });
+    for (let i = 0; i < 3; i++) {
+      spawns.push({ x: 28 + Math.random()*4, y: 18 + Math.random()*4, type: ENEMIES.GOBLIN });
     }
-    for (let i = 0; i < 10; i++) {
+    // Archer goblins - moved out of the entrance corridor
+    for (let i = 0; i < 4; i++) {
+      spawns.push({ x: 37 + Math.random()*6, y: 14 + Math.random()*3, type: ENEMIES.GOBLIN_BOW });
+    }
+    // Mage goblins - moved out of the entrance corridor
+    for (let i = 0; i < 3; i++) {
+      spawns.push({ x: 11 + Math.random()*6, y: 26 + Math.random()*6, type: ENEMIES.GOBLIN_MAGE });
+    }
+    // Skeletons - reduced quantity slightly for spacing
+    for (let i = 0; i < 5; i++) {
+      spawns.push({ x: 12 + Math.random()*6, y: 27 + Math.random()*4, type: ENEMIES.SKELETON });
+    }
+    for (let i = 0; i < 5; i++) {
       spawns.push({ x: 32 + Math.random()*4, y: 26 + Math.random()*6, type: ENEMIES.SKELETON });
     }
     // The Boss

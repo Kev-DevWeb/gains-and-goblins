@@ -478,10 +478,33 @@ export default class UIScene extends Phaser.Scene {
       color: '#ffffff',
     }).setOrigin(1, 0.5);
 
-    this._statsPanelElements.push(this._affinityBg, this._affinityLabel, this._affinityValue);
+    // Vitality row below affinity
+    const vitalityY = affinityY + 28;
+    this._vitalityBg = this.add.graphics();
+    this._vitalityBg.fillStyle(0x1a331a, 0.9);
+    this._vitalityBg.fillRoundedRect(px + 4, vitalityY - 2, panelW - 8, 24, 4);
+    this._vitalityBg.lineStyle(1, 0x2ecc71, 0.6);
+    this._vitalityBg.strokeRoundedRect(px + 4, vitalityY - 2, panelW - 8, 24, 4);
 
-    // Resize the panel to fit
-    const totalH = panelH + 28;
+    this._vitalityLabel = this.add.text(px + 8, vitalityY + 4, '⚡ Vitalidad:', {
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '9px',
+      color: '#2ecc71',
+    }).setOrigin(0, 0.5);
+
+    this._vitalityValue = this.add.text(px + panelW - 8, vitalityY + 4, '100 / 300', {
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '9px',
+      color: '#ffffff',
+    }).setOrigin(1, 0.5);
+
+    this._statsPanelElements.push(
+      this._affinityBg, this._affinityLabel, this._affinityValue,
+      this._vitalityBg, this._vitalityLabel, this._vitalityValue
+    );
+
+    // Resize the panel to fit (added +28 for the vitality row)
+    const totalH = panelH + 28 + 28;
     this._statsPanelGfx.clear();
     this._statsPanelGfx.fillStyle(DARK_BG, 0.88);
     this._statsPanelGfx.fillRoundedRect(px, py, panelW, totalH, 6);
@@ -645,6 +668,9 @@ export default class UIScene extends Phaser.Scene {
     this.game.events.on('player-died',    () => this.showDeathBanner());
     this.game.events.on('player-respawned', () => {});
     this.game.events.on('update-affinity', (branch, counts) => this.updateAffinity(branch, counts));
+    this.game.events.on('update-vitality', (val) => {
+      if (this._vitalityValue) this._vitalityValue.setText(`${val} / 300`);
+    });
 
     // Clean up on scene shutdown so we don't leak listeners
     this.events.on('shutdown', () => {
@@ -657,6 +683,8 @@ export default class UIScene extends Phaser.Scene {
       this.game.events.off('show-notification');
       this.game.events.off('player-died');
       this.game.events.off('player-respawned');
+      this.game.events.off('update-affinity');
+      this.game.events.off('update-vitality');
     });
   }
 

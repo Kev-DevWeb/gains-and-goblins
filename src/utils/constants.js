@@ -166,6 +166,7 @@ export const TILES = {
   DUNGEON_WALL: 25,
   LAVA: 26,
   CAVE_ENTRANCE: 27,
+  STUDY_TABLE: 28,
 };
 
 // ── Solid Tiles (impassable) ─────────────────────────────────
@@ -183,6 +184,7 @@ export const SOLID_TILES = [
   TILES.BULLETIN_BOARD,
   TILES.DUNGEON_WALL,
   TILES.LAVA,
+  TILES.STUDY_TABLE,
 ];
 
 // ── Tile Colors (16-bit pixel-art palette) ───────────────────
@@ -217,6 +219,7 @@ export const TILE_COLORS = {
   [TILES.DUNGEON_WALL]:  { primary: 0x111111, secondary: 0x222222, detail: 0x050505 }, // Pitch black/dark grey wall
   [TILES.LAVA]:          { primary: 0xff4500, secondary: 0xd93800, detail: 0xff8c00 }, // Bright orange/red lava
   [TILES.CAVE_ENTRANCE]: { primary: 0x111111, secondary: 0x000000, detail: 0x333333 }, // Black void entrance
+  [TILES.STUDY_TABLE]:   { primary: 0x8b5a2b, secondary: 0x5c4033, detail: 0xd4af37 }, // Wooden desk and chair
 };
 
 // ── Enemy Types ──────────────────────────────────────────────
@@ -231,17 +234,43 @@ export const ENEMIES = {
     size: 12,
     aggroRange: 80,
     patrolRange: 60,
+    defense: 0,
   },
   GOBLIN: {
     name: 'Goblin',
-    hp: 35,
-    damage: 6,
-    speed: 55,
+    hp: 70,
+    damage: 11,
+    speed: 25,
     xp: 25,
     color: 0x7cb342,
     size: 14,
     aggroRange: 100,
     patrolRange: 80,
+    defense: 3,
+  },
+  GOBLIN_BOW: {
+    name: 'Goblin Arquero',
+    hp: 20,
+    damage: 3,
+    speed: 75,
+    xp: 25,
+    color: 0x8bc34a,
+    size: 13,
+    aggroRange: 140,
+    patrolRange: 80,
+    defense: 0,
+  },
+  GOBLIN_MAGE: {
+    name: 'Goblin Mago',
+    hp: 8,
+    damage: 18,
+    speed: 30,
+    xp: 30,
+    color: 0x9b59b6,
+    size: 13,
+    aggroRange: 130,
+    patrolRange: 60,
+    defense: 0,
   },
   SKELETON: {
     name: 'Esqueleto',
@@ -253,6 +282,7 @@ export const ENEMIES = {
     size: 14,
     aggroRange: 120,
     patrolRange: 70,
+    defense: 1,
   },
   GOBLIN_KING: {
     name: 'Rey Goblin',
@@ -265,6 +295,7 @@ export const ENEMIES = {
     aggroRange: 180,
     patrolRange: 100,
     isBoss: true,
+    defense: 5,
   },
 };
 

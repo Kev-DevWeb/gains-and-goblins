@@ -71,7 +71,7 @@ export default class DailyMissionSystem {
   _generate() {
     // Shuffle the pool and pick DAILY_MISSION_COUNT unique ones
     const shuffled = [...MISSION_POOL].sort(() => Math.random() - 0.5);
-    this.missions = shuffled.slice(0, DAILY_MISSION_COUNT).map(m => ({ ...m }));
+    this.missions = shuffled.slice(0, DAILY_MISSION_COUNT).map(m => ({ ...m, accepted: false }));
     this.progress = {};
     this.claimed  = {};
     this.notified = {};
@@ -96,7 +96,7 @@ export default class DailyMissionSystem {
   trackKill(enemyName, mapId) {
     let any = false;
     for (const m of this.missions) {
-      if (this.claimed[m.id]) continue;
+      if (!m.accepted || this.claimed[m.id]) continue;
       const prog = this.progress[m.id] || 0;
 
       // Arena-specific kill subtype
@@ -143,7 +143,7 @@ export default class DailyMissionSystem {
   trackVisit(mapId) {
     let any = false;
     for (const m of this.missions) {
-      if (this.claimed[m.id]) continue;
+      if (!m.accepted || this.claimed[m.id]) continue;
       if (m.type === 'visit' && m.target === mapId && this.progress[m.id] < m.count) {
         this.progress[m.id] = 1;
         any = true;
@@ -159,7 +159,7 @@ export default class DailyMissionSystem {
   trackActivity(branchKey) {
     let any = false;
     for (const m of this.missions) {
-      if (this.claimed[m.id]) continue;
+      if (!m.accepted || this.claimed[m.id]) continue;
       const prog = this.progress[m.id] || 0;
       if (m.type === 'activity') {
         if (m.target === 'any' || m.target === branchKey) {
@@ -176,7 +176,7 @@ export default class DailyMissionSystem {
 
   _checkCompletions() {
     for (const m of this.missions) {
-      if (this.claimed[m.id] || this.notified[m.id]) continue;
+      if (!m.accepted || this.claimed[m.id] || this.notified[m.id]) continue;
       if (this._isComplete(m)) {
         this.notified[m.id] = true;
         this.game.events.emit('show-notification', `✅ ¡Misión completada: ${m.title}!`, '#2ecc71');
@@ -205,6 +205,18 @@ export default class DailyMissionSystem {
     return m.reward;
   }
 
+  acceptMission(missionId) {
+    const m = this.missions.find(x => x.id === missionId);
+    if (m && !m.accepted) {
+      m.accepted = true;
+      this._save();
+      this._checkCompletions(); // check just in case
+      this.game.events.emit('show-notification', `Aceptada: ${m.title}`, '#f1c40f');
+      return true;
+    }
+    return false;
+  }
+
   // ── Queries ───────────────────────────────────────────────────────────────
 
   getMissions() {
@@ -214,6 +226,7 @@ export default class DailyMissionSystem {
       extraProgress: m.extraKill ? (this.progress[`${m.id}_extra`] || 0) : null,
       completed: this._isComplete(m),
       claimed:   !!this.claimed[m.id],
+      accepted:  !!m.accepted,
     }));
   }
 

@@ -1125,6 +1125,9 @@ body {
   gap: 12px;
   width: 100%;
 }
+.auth-form.hidden {
+  display: none;
+}
 .auth-input-group {
   display: flex;
   flex-direction: column;

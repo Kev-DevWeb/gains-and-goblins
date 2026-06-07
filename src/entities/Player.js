@@ -32,9 +32,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
     // Moral alignment: -100 (evil) ↔ +100 (heroic)
     this.moral = 0;
+    this.debuffTimer = 0;
+    this.isRolling = false;
+    this.lastDodgeTime = 0;
 
-    // Branch points (unspent) — Fable-style
-    this.branchPoints = { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
+    // Branch points (unspent) — Fable-style (vitality tracks energy for study/meditation)
+    this.branchPoints = { strength: 0, dexterity: 0, intelligence: 0, willpower: 0, vitality: 100 };
 
     // ── AFINIDAD ORGÁNICA ──
     // Registro mensual de actividades por rama
@@ -51,6 +54,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.lastAttackTime = 0;
     this.facing = 'down';
     this.isDead = false;
+    this.comboStep = 0;
+    this.shieldActivatedAt = 0;
+    this.isUltimateActive = false;
+    this.ultimateActivatedAt = 0;
 
     // Shadow
     this.shadow = scene.add.ellipse(x, y + 10, 12, 6, 0x000000, 0.4);
@@ -59,6 +66,14 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     // Mana regeneration: +1 mana every 2 seconds
     // (willpower stat reduces the delay: base 2000ms - willpower*80ms, min 500ms)
     this._startManaRegen();
+  }
+
+  get vitality() {
+    return this.branchPoints.vitality ?? 100;
+  }
+
+  set vitality(value) {
+    this.branchPoints.vitality = Math.max(0, Math.min(300, value));
   }
 
   _startManaRegen() {
@@ -113,6 +128,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         const dust = this.scene.add.rectangle(this.x, this.y + 8, 4, 4, 0xaaaaaa, 0.5);
         this.scene.tweens.add({ targets: dust, y: dust.y - 10, alpha: 0, duration: 300, onComplete: () => dust.destroy() });
       }
+      // Sync shadow and shield visual positions during roll
+      if (this.shadow) {
+        this.shadow.x = this.x;
+        this.shadow.y = this.y + 10;
+      }
+      if (this.shieldBubble) {
+        this.shieldBubble.x = this.x;
+        this.shieldBubble.y = this.y;
+      }
       return; // Skip normal movement while rolling
     }
 
@@ -134,6 +158,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.isCharging && this.currentWeaponKey === WEAPONS.BOW.key) {
       const chargeDur = this.scene.time.now - this.chargeStartTime;
       if (chargeDur > 300) currentSpeed = (PLAYER_SPEED + (this.stats.speed - 5) * 4) * 0.5; // 50% slow down
+    }
+
+    // Apply speed debuff if underleveled (Hero Lv. 1 vs Monster Lv. 2+)
+    if (this.debuffTimer && this.scene.time.now < this.debuffTimer) {
+      currentSpeed *= 0.7; // 30% slow
     }
 
     if (cursors.left.isDown || cursors.A.isDown) {
@@ -177,6 +206,72 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       this.shieldBubble.x = this.x;
       this.shieldBubble.y = this.y;
     }
+  }
+
+  dodgeRoll() {
+    if (this.isDead || this.isRolling) return;
+    const time = this.scene.time.now;
+
+    // 1 second cooldown
+    if (this.lastDodgeTime && time < this.lastDodgeTime + 1000) return;
+    this.lastDodgeTime = time;
+
+    this.isRolling = true;
+    this.isInvulnerable = true;
+
+    // Determine direction
+    let dirX = 0;
+    let dirY = 0;
+
+    const cursors = this.scene.cursors;
+    if (cursors) {
+      if (cursors.left.isDown || cursors.A.isDown) dirX = -1;
+      else if (cursors.right.isDown || cursors.D.isDown) dirX = 1;
+
+      if (cursors.up.isDown || cursors.W.isDown) dirY = -1;
+      else if (cursors.down.isDown || cursors.S.isDown) dirY = 1;
+    }
+
+    // Default to currently facing direction if no movement keys pressed
+    if (dirX === 0 && dirY === 0) {
+      if (this.facing === 'left') dirX = -1;
+      else if (this.facing === 'right') dirX = 1;
+      else if (this.facing === 'up') dirY = -1;
+      else if (this.facing === 'down') dirY = 1;
+    }
+
+    // Normalize diagonal vectors
+    if (dirX !== 0 && dirY !== 0) {
+      const len = Math.sqrt(dirX * dirX + dirY * dirY);
+      dirX /= len;
+      dirY /= len;
+    }
+
+    // Apply high roll velocity
+    const rollSpeed = 260;
+    this.body.setVelocity(dirX * rollSpeed, dirY * rollSpeed);
+
+    // Roll animation: 360 degree spin in movement direction
+    const rotationAngle = dirX < 0 ? -360 : 360;
+
+    const uiScene = this.scene.scene.get('UI');
+    if (uiScene?.showNotification) {
+      uiScene.showNotification('⚡ ¡Voltereta!', '#3498db');
+    }
+
+    this.scene.tweens.add({
+      targets: this,
+      angle: rotationAngle,
+      duration: 350,
+      onComplete: () => {
+        if (!this.isDead) {
+          this.isRolling = false;
+          this.isInvulnerable = false;
+          this.setAngle(0);
+          this.body.setVelocity(0);
+        }
+      }
+    });
   }
 
   switchWeapon(weaponKey) {
@@ -250,17 +345,19 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   getAttackCooldown() {
+    let cooldownValue = PLAYER_ATTACK_COOLDOWN;
     if (this.currentWeaponKey === WEAPONS.SWORD.key) {
       // Base sword cooldown is longer (lower attack speed), e.g. 800ms.
       // Every point of the 'speed' stat (starts at 5) reduces the cooldown by 40ms.
-      // At speed = 5, cooldown is 800ms.
-      // At speed = 15, cooldown is 800 - 10*40 = 400ms.
-      // Minimum cooldown is 250ms.
       const baseCooldown = 800;
       const speedBonus = (this.stats.speed - 5) * 40;
-      return Math.max(250, baseCooldown - speedBonus);
+      cooldownValue = Math.max(250, baseCooldown - speedBonus);
     }
-    return PLAYER_ATTACK_COOLDOWN;
+    // Halve all attack cooldowns during Ultimate!
+    if (this.isUltimateActive) {
+      cooldownValue = Math.max(120, Math.floor(cooldownValue * 0.5));
+    }
+    return cooldownValue;
   }
 
   beginCharge() {
@@ -278,7 +375,22 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     const chargeDur = this.scene.time.now - this.chargeStartTime;
     // Tint character to show charging
     if (chargeDur > 800 && this.currentWeaponKey === WEAPONS.SWORD.key) this.setTint(0xffd700);
-    if (chargeDur > 1200 && this.currentWeaponKey === WEAPONS.BOW.key) this.setTint(0xff8c00);
+    
+    if (this.currentWeaponKey === WEAPONS.BOW.key) {
+      const speedVal = this.stats.speed || 5;
+      const chargeTarget = Math.max(400, 1000 - (speedVal - 5) * 50);
+
+      if (chargeDur >= chargeTarget * 0.8 && chargeDur <= chargeTarget * 1.2) {
+        this.setTint(0x2ecc71); // Green (Perfect Tension!)
+      } else if (chargeDur > chargeTarget * 1.2 && chargeDur <= chargeTarget * 1.5) {
+        this.setTint(0xff8c00); // Orange
+      } else if (chargeDur > chargeTarget * 1.5) {
+        this.setTint(0xff0000); // Red (Unstable!)
+        // Shake player sprite visually
+        this.x += Math.sin(this.scene.time.now * 0.3) * 0.7;
+      }
+    }
+    
     if (chargeDur > 1000 && this.currentWeaponKey === WEAPONS.MAGIC.key) this.setTint(0xa855f7);
   }
 
@@ -289,7 +401,8 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.isDead) return;
 
     const time = this.scene.time.now;
-    if (time < this.lastAttackTime + this.getAttackCooldown()) return;
+    const cooldown = this.getAttackCooldown();
+    if (time < this.lastAttackTime + cooldown) return;
 
     const chargeTime = time - this.chargeStartTime;
 
@@ -299,13 +412,33 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     // Check mana cost if magic
     if (this.currentWeaponKey === WEAPONS.MAGIC.key) {
       const isAoE = chargeTime > 1000;
-      const cost = isAoE ? weaponObj.manaCost * 2.5 : weaponObj.manaCost; // AoE costs more
+      let cost = isAoE ? weaponObj.manaCost * 2.5 : weaponObj.manaCost; // AoE costs more
+      if (this.isUltimateActive) {
+        cost = 0; // Mana cost reduced to 0 during ultimate
+      }
       if (this.mana < cost) {
         this.scene.game.events.emit('show-notification', 'Sin maná suficiente', '#e94560');
         return;
       }
-      this.mana -= cost;
-      this.scene.game.events.emit('update-mana', this.mana, this.maxMana);
+      if (cost > 0) {
+        this.mana -= cost;
+        this.scene.game.events.emit('update-mana', this.mana, this.maxMana);
+      }
+    }
+
+    // Sword combo step tracking
+    if (this.currentWeaponKey === WEAPONS.SWORD.key && chargeTime < 500) {
+      const timeSinceLast = time - this.lastAttackTime;
+      // If pressing space within combo window (scales with Resistance)
+      const resVal = this.stats.resistance || 5;
+      const comboWindow = 600 + (resVal - 5) * 40;
+      if (timeSinceLast >= cooldown && timeSinceLast <= cooldown + comboWindow) {
+        this.comboStep = (this.comboStep + 1) % 3;
+      } else {
+        this.comboStep = 0;
+      }
+    } else {
+      this.comboStep = 0;
     }
 
     this.lastAttackTime = time;
@@ -330,7 +463,8 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       weapon: { ...weaponObj, damage: scaledDamage },
       dir: { x: ox, y: oy },
       origin: { x: this.x, y: this.y },
-      chargeTime
+      chargeTime,
+      comboStep: this.comboStep
     };
 
     this.scene.events.emit('player-attack', attackData);
@@ -342,8 +476,38 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.scene.events.emit('player-spell', { spell: spellKey, origin: { x: this.x, y: this.y } });
   }
 
-  takeDamage(amount) {
+  takeDamage(amount, attacker = null) {
     if (this.isInvulnerable || this.isDead) return;
+
+    // Check for underleveled debuff (Hero level 1 vs Monster level 2+)
+    if (attacker && attacker.level && attacker.level >= 2 && this.level === 1) {
+      this.debuffTimer = this.scene.time.now + 3000;
+      const uiScene = this.scene.scene.get('UI');
+      if (uiScene?.showNotification) {
+        uiScene.showNotification('¡Intimidado! (-30% Velocidad por diferencia de nivel)', '#a855f7');
+      }
+
+      // Flash purple tint to indicate debuff after the red invulnerablity/hurt flash
+      this.scene.time.delayedCall(400, () => {
+        if (!this.isDead) {
+          this.setTint(0xa855f7); // Purple tint
+          this.scene.time.delayedCall(2600, () => {
+            if (!this.isDead && this.scene.time.now >= this.debuffTimer) {
+              this.clearTint();
+            }
+          });
+        }
+      });
+    }
+
+    // Perfect Parry Check: activated shield < 500ms ago
+    if (this.hasPhysicalShield && this.shieldActivatedAt) {
+      const elapsed = this.scene.time.now - this.shieldActivatedAt;
+      if (elapsed < 500) {
+        this.scene.events.emit('player-parry', { origin: { x: this.x, y: this.y }, amount });
+        return; // Zero damage, triggers counters
+      }
+    }
 
     // Escudo Físico (Physical Shield) intercepts damage with mana
     if (this.hasPhysicalShield) {
@@ -436,6 +600,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.clearTint();
     this.isDead = false;
     this.isInvulnerable = true;
+    this.debuffTimer = 0;
 
     // Brief invulnerability after respawn
     this.scene.time.delayedCall(2000, () => {
@@ -705,6 +870,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     return true;
   }
 
+  hasLoggedActivityToday() {
+    const today = new Date().toISOString().split('T')[0];
+    return Object.values(this.activitiesToday).some(date => date === today);
+  }
+
   /**
    * Get save data for persistence.
    */
@@ -751,7 +921,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       counts: { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 }
     };
     this.dominantBranch = data.dominantBranch || null;
-    this.branchPoints = data.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
+    this.branchPoints = data.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0, vitality: 100 };
+    if (this.branchPoints.vitality === undefined) {
+      this.branchPoints.vitality = 100;
+    }
     this.lastDeathTime = data.lastDeathTime || 0;
     this.consecutiveDeaths = data.consecutiveDeaths || 0;
     this.moral = data.moral ?? 0;

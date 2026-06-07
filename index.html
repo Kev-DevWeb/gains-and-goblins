@@ -19,8 +19,27 @@
     <div id="hud-controls">
       <button class="hud-btn" id="btn-stats" title="Estadísticas (TAB)">📊 Stats</button>
       <button class="hud-btn" id="btn-inventory" title="Inventario (I)">🎒 Inventario</button>
+      <button class="hud-btn" id="btn-quests" title="Misiones (J)">📜 Misiones</button>
       <button class="hud-btn" id="btn-habits" title="Hábitos (L)">💪 Hábitos</button>
       <button class="hud-btn" id="btn-help" title="Ayuda">❓ Ayuda</button>
+    </div>
+
+    <!-- Panel de Misiones -->
+    <div id="quests-panel" class="hud-panel glass-panel hidden">
+      <div class="panel-header">
+        <h2 class="medieval-text gold-text">Misiones</h2>
+        <button class="close-btn" data-target="quests-panel">&times;</button>
+      </div>
+      <div class="quests-content" style="max-height: 220px; overflow-y: auto; padding-right: 5px; margin-top: 10px;">
+        <h3 class="gold-text medieval-text" style="font-size: 0.9rem; border-bottom: 1px solid rgba(255, 215, 0, 0.3); padding-bottom: 4px; margin-bottom: 8px;">Diarias Aceptadas</h3>
+        <div id="daily-quests-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+          <!-- Active daily missions will be injected here -->
+        </div>
+        <h3 class="gold-text medieval-text" style="font-size: 0.9rem; border-bottom: 1px solid rgba(255, 215, 0, 0.3); padding-bottom: 4px; margin-bottom: 8px;">Principales Activas</h3>
+        <div id="main-quests-list" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Active main quests will be injected here -->
+        </div>
+      </div>
     </div>
 
     <!-- Panel de Inventario -->

@@ -19,6 +19,7 @@ export default class WorldScene extends Phaser.Scene {
     this.mapId = data?.mapId || 'guild';
     this.spawnId = data?.spawnId || 'default';
     this.isTransitioning = false;
+    this.isPerformingAction = false;
   }
 
   create() {
@@ -125,28 +126,49 @@ export default class WorldScene extends Phaser.Scene {
     this.npcsGroup = this.add.group();
     
     if (this.mapId === 'guild') {
-      // 1. Villager (Guild Master - Center)
+      // 1. Maestro (Center)
       const villager = new NPC(this, 30 * TILE_SIZE, 17 * TILE_SIZE, 'npc_villager', {
         name: 'Maestro',
         dialogueKey: 'tutorial',
         wanderRadius: 10
       });
-      // 2. Blacksmith (Reception - Top Center)
-      const smith = new NPC(this, 30 * TILE_SIZE, 8 * TILE_SIZE, 'npc_smith', {
-        name: 'Herrero',
-        dialogueKey: 'smith',
+      // 2. Recepcionista (Gym Front Desk)
+      const receptionist = new NPC(this, 30 * TILE_SIZE, 8 * TILE_SIZE, 'npc_receptionist', {
+        name: 'Recepcionista',
+        dialogueKey: 'receptionist',
         wanderRadius: 0
       });
-      // 3. Alchemist (Library/Magic Zone - Top Right)
+      // 3. Sabio (Library / Magic Zone)
       const alchemist = new NPC(this, 48 * TILE_SIZE, 9 * TILE_SIZE, 'npc_sage', {
-        name: 'Alquimista',
-        dialogueKey: 'shop',
-        wanderRadius: 20
+        name: 'Librero Sabio',
+        dialogueKey: 'sage_librarian',
+        wanderRadius: 0
+      });
+      // 4. Entrenador de Fuerza (Weights Zone - Top Left)
+      const coachStrength = new NPC(this, 8 * TILE_SIZE, 9 * TILE_SIZE, 'npc_coach_strength', {
+        name: 'Entrenador de Fuerza',
+        dialogueKey: 'coach_strength',
+        wanderRadius: 5
+      });
+      // 5. Instructor de Cardio (Cardio Zone - Bottom Left)
+      const coachCardio = new NPC(this, 8 * TILE_SIZE, 24 * TILE_SIZE, 'npc_coach_cardio', {
+        name: 'Instructor de Cardio',
+        dialogueKey: 'coach_cardio',
+        wanderRadius: 5
+      });
+      // 6. Monje de Meditación (Meditation Zone - Bottom Right)
+      const monk = new NPC(this, 50 * TILE_SIZE, 22 * TILE_SIZE, 'npc_monk', {
+        name: 'Monje de Meditación',
+        dialogueKey: 'coach_meditation',
+        wanderRadius: 5
       });
 
       this.npcsGroup.add(villager);
-      this.npcsGroup.add(smith);
+      this.npcsGroup.add(receptionist);
       this.npcsGroup.add(alchemist);
+      this.npcsGroup.add(coachStrength);
+      this.npcsGroup.add(coachCardio);
+      this.npcsGroup.add(monk);
     }
     this.physics.add.collider(this.npcsGroup, this.mapLayer);
     this.physics.add.collider(
@@ -172,6 +194,7 @@ export default class WorldScene extends Phaser.Scene {
       E: Phaser.Input.Keyboard.KeyCodes.E,
       Q: Phaser.Input.Keyboard.KeyCodes.Q,
       F: Phaser.Input.Keyboard.KeyCodes.F,
+      R: Phaser.Input.Keyboard.KeyCodes.R,
       SHIFT: Phaser.Input.Keyboard.KeyCodes.SHIFT,
       H: Phaser.Input.Keyboard.KeyCodes.H,
       M: Phaser.Input.Keyboard.KeyCodes.M,
@@ -191,7 +214,7 @@ export default class WorldScene extends Phaser.Scene {
       this.player.switchWeapon(WEAPONS.MAGIC.key);
     });
 
-    // Spells (Q and F)
+    // Spells (Q, F and Ultimate R)
     this.cursors.Q.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.castSpell('shield');
@@ -199,6 +222,10 @@ export default class WorldScene extends Phaser.Scene {
     this.cursors.F.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.castSpell('ghost_swords');
+    });
+    this.cursors.R.on('down', () => {
+      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+      this._activateUltimate();
     });
 
     // Dodge Roll (SHIFT)
@@ -224,17 +251,22 @@ export default class WorldScene extends Phaser.Scene {
       padding: { x: 4, y: 2 },
     }).setOrigin(0.5).setDepth(20).setVisible(false);
 
+    // ── Combat Indicators ──
+    this.comboIndicator = this.add.graphics({ depth: 8 });
+    this.trajectoryIndicator = this.add.graphics({ depth: 8 });
+
     // ── Events ──
     this.events.on('player-attack', this.handleAttack, this);
     this.events.on('player-spell', this.handleSpellcast, this);
+    this.events.on('player-parry', this.handleParry, this);
 
     // Handle enemy deaths → give gold & track quests
     this.events.on('enemy-died', (enemy) => {
-      let goldDrop = Math.floor(enemy.xpReward / 2) + Phaser.Math.Between(1, 5);
+      let goldDrop = Phaser.Math.Between(1, 3);
       
       // Boss drop
       if (enemy.typeConfig.isBoss) {
-        goldDrop = 500;
+        goldDrop = 150;
         // Boss death dramatic effect
         this.cameras.main.flash(800, 255, 215, 0); // Gold flash
         this.cameras.main.shake(1000, 0.02);
@@ -252,6 +284,9 @@ export default class WorldScene extends Phaser.Scene {
 
       // Track daily mission
       this.dailyMissions.trackKill(enemy.typeConfig.name, this.mapId);
+
+      // Sync HUD panel
+      this._syncQuestsUI();
 
       // Auto-save after enemy kill
       SaveSystem.save(this.player.getSaveData());
@@ -274,6 +309,19 @@ export default class WorldScene extends Phaser.Scene {
 
       // Mark as done today
       this.player.activitiesToday[activityId] = today;
+
+      // Add Vitality for physical exercises (strength / dexterity)
+      if (activity.branch === 'strength' || activity.branch === 'dexterity') {
+        const prevVit = this.player.vitality;
+        this.player.vitality = Math.min(300, this.player.vitality + 100);
+        this.game.events.emit('update-vitality', this.player.vitality);
+        this.time.delayedCall(1500, () => {
+          const ui = this.scene.get(SCENES.UI);
+          if (ui && ui.showNotification) {
+            ui.showNotification(`💪 ¡Energía Vital! +100 (${prevVit} ➔ ${this.player.vitality})`, '#2ecc71');
+          }
+        });
+      }
 
       // Grant branch XP (unspent point)
       this.player.gainBranchXP(activity.branch, activity.xpReward);
@@ -304,6 +352,9 @@ export default class WorldScene extends Phaser.Scene {
 
       // Track daily mission activity
       this.dailyMissions.trackActivity(activity.branch);
+
+      // Sync HUD panel
+      this._syncQuestsUI();
 
       // Notify if all daily missions done
       if (this.dailyMissions.allClaimed()) {
@@ -342,6 +393,8 @@ export default class WorldScene extends Phaser.Scene {
       this.game.events.emit('update-inventory', this.player.inventory);
       this.game.events.emit('update-affinity', this.player.dominantBranch, this.player.affinityData?.counts || {});
       this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
+      this.game.events.emit('update-vitality', this.player.vitality);
+      this._syncQuestsUI();
 
       // Notify player of any unspent points from previous session
       const unspent = Object.entries(this.player.branchPoints).filter(([, v]) => v > 0);
@@ -353,9 +406,10 @@ export default class WorldScene extends Phaser.Scene {
       }
     });
 
-    // ── Enemy respawn timer (every 30s) ──
+    // ── Enemy respawn timer (60s for deeproot to avoid crowding, 30s for other maps) ──
+    const respawnDelay = this.mapId === 'deeproot' ? 60000 : 30000;
     this._enemyRespawnTimer = this.time.addEvent({
-      delay: 30000,
+      delay: respawnDelay,
       callback: () => this._respawnDeadEnemies(),
       loop: true
     });
@@ -391,7 +445,10 @@ export default class WorldScene extends Phaser.Scene {
         this.player.gold = character.gold;
         this.player.moral = character.moral;
         this.player.inventory = character.inventory || [];
-        this.player.branchPoints = character.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 };
+        this.player.branchPoints = character.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0, vitality: 100 };
+        if (this.player.branchPoints.vitality === undefined) {
+          this.player.branchPoints.vitality = 100;
+        }
 
         // Recalculate max HP and Mana
         this.player.maxHp = character.resistance * 10;
@@ -405,6 +462,8 @@ export default class WorldScene extends Phaser.Scene {
         this.game.events.emit('update-xp', this.player.xp, this.player.level * 50, this.player.level);
         this.game.events.emit('update-inventory', this.player.inventory);
         this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
+        this.game.events.emit('update-vitality', this.player.vitality);
+        this._syncQuestsUI();
 
         // Show notifications if applicable
         const uiScene = this.scene.get(SCENES.UI);
@@ -429,6 +488,12 @@ export default class WorldScene extends Phaser.Scene {
   // ── UPDATE ──
   update() {
     if (this.isTransitioning) return;
+
+    if (this.isPerformingAction) {
+      this.player.body.setVelocity(0);
+      this.player.anims.stop();
+      return;
+    }
 
     if (this.dialogueSystem && this.dialogueSystem.isActive) {
       this.player.body.setVelocity(0);
@@ -519,18 +584,54 @@ export default class WorldScene extends Phaser.Scene {
 
     // Check for nearby interactables and show prompt
     this._updateInteractionPrompt();
+
+    // Draw combat visual helpers
+    this._drawComboIndicator();
+    this._drawTrajectoryLine();
   }
 
   // ========================================================================
   //  COMBAT & SPELLS
   // ========================================================================
   handleAttack(data) {
-    const { weapon, dir, origin, chargeTime } = data;
+    const { weapon, dir, origin, chargeTime, comboStep } = data;
     const isCharged = chargeTime > 800; // 0.8s charge
 
     if (weapon.key === WEAPONS.SWORD.key) {
       // Melee attack
-      const spriteKey = isCharged ? 'slash_flourish' : 'slash_effect';
+      let damage = weapon.damage;
+      let spriteKey = 'slash_effect';
+      let scale = 1.3;
+      let pushForce = 120;
+      let stunTime = 0;
+      
+      const step = comboStep || 0;
+      if (step === 1) {
+        // Thrust combo
+        damage = Math.ceil(damage * 1.25);
+        scale = 1.6;
+        pushForce = 85;
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification('⚔️ ¡Combo: Estocada! (+25%)', '#ffd700');
+      } else if (step === 2) {
+        // Overhead smash combo
+        damage = Math.ceil(damage * 1.6);
+        spriteKey = 'slash_flourish';
+        scale = 2.0;
+        pushForce = 250;
+        stunTime = 1000; // 1s stun
+        this.cameras.main.shake(150, 0.008);
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification('💥 ¡GOLPE DE MARTILLO! (+60% y Aturdir)', '#f1c40f');
+      }
+
+      if (isCharged) {
+        damage = weapon.damage * 2;
+        spriteKey = 'slash_flourish';
+        scale = 2.2;
+        pushForce = 220;
+      }
+
       const slash = this.add.sprite(origin.x + dir.x * 16, origin.y + dir.y * 16, spriteKey);
       slash.setDepth(15);
 
@@ -542,21 +643,63 @@ export default class WorldScene extends Phaser.Scene {
       this.tweens.add({
         targets: slash,
         alpha: 0,
-        scale: isCharged ? 2.0 : 1.5,
+        scale: scale,
         duration: isCharged ? 250 : 150,
         onComplete: () => slash.destroy()
       });
 
-      const size = isCharged ? 40 : 24;
+      const size = 24 * scale;
       const hitbox = this.add.rectangle(slash.x, slash.y, size, size, 0xff0000, 0);
       this.physics.add.existing(hitbox);
 
       const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
-        enemy.takeDamage(isCharged ? weapon.damage * 2 : weapon.damage, dir);
-        if (isCharged) {
-          // Extra knockback
-          enemy.body.setVelocity(dir.x * 200, dir.y * 200);
-          this.cameras.main.shake(100, 0.005);
+        // Thermal Explosion Reaction: Sword combo on Burning enemy
+        const isBurning = this.time.now < enemy.burnTimer;
+        if (step > 0 && isBurning) {
+          enemy.burnTimer = 0; // clear burn state
+          const bonusDamage = Math.ceil(damage * 1.25);
+          enemy.takeDamage(bonusDamage, dir, 'sword');
+
+          const uiScene = this.scene.get(SCENES.UI);
+          if (uiScene?.showNotification) {
+            uiScene.showNotification('🔥 ¡REACCIÓN: EXPLOSIÓN TÉRMICA! 🔥', '#e67e22');
+          }
+
+          // Extra impact visual and shake
+          this.cameras.main.shake(150, 0.012);
+
+          const fireExplosion = this.add.particles(0, 0, 'particle_gold', {
+            speed: { min: 50, max: 200 },
+            scale: { start: 1.5, end: 0 },
+            blendMode: 'ADD',
+            lifespan: 700,
+            quantity: 30
+          });
+          fireExplosion.explode(30, enemy.x, enemy.y);
+          this.time.delayedCall(1000, () => fireExplosion.destroy());
+
+          // Splash damage + high knockback to nearby enemies (64px)
+          this.enemiesGroup.getChildren().forEach(other => {
+            if (other !== enemy && other.active && !other.isDead) {
+              const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+              if (d < 64) {
+                const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
+                const push = { x: Math.cos(angle), y: Math.sin(angle) };
+                other.takeDamage(Math.ceil(damage * 0.75), push, 'sword');
+                other.body.setVelocity(push.x * 300, push.y * 300);
+              }
+            }
+          });
+        } else {
+          enemy.takeDamage(damage, dir, 'sword');
+          enemy.body.setVelocity(dir.x * pushForce, dir.y * pushForce);
+        }
+
+        if (stunTime > 0) {
+          enemy.isStunned = true;
+          this.time.delayedCall(stunTime, () => {
+            if (enemy && enemy.active) enemy.isStunned = false;
+          });
         }
       });
 
@@ -566,18 +709,40 @@ export default class WorldScene extends Phaser.Scene {
       });
 
     } else if (weapon.key === WEAPONS.BOW.key) {
-      const isPiercing = chargeTime > 1200; // 1.2s charge
-      const spriteKey = isPiercing ? 'arrow_charged' : 'arrow';
+      const speedVal = this.player.stats.speed || 5;
+      const chargeTarget = Math.max(400, 1000 - (speedVal - 5) * 50);
+      const isPerfect = chargeTime >= chargeTarget * 0.8 && chargeTime <= chargeTarget * 1.2;
+      const isOvercharged = chargeTime > chargeTarget * 1.5;
+      
+      let spriteKey = isPerfect ? 'arrow_charged' : 'arrow';
+      let damage = weapon.damage;
+      let speed = isPerfect ? 350 : 200;
+      let spreadAngle = 0;
+      
+      const uiScene = this.scene.get(SCENES.UI);
+      if (isPerfect) {
+        damage = Math.ceil(damage * 1.5);
+        if (uiScene?.showNotification) {
+          uiScene.showNotification('🎯 ¡TIRO PERFECTO! +50% Daño', '#2ecc71');
+        }
+      } else if (isOvercharged) {
+        damage = Math.ceil(damage * 0.5);
+        speed = 120;
+        const dexVal = this.player.stats.dexterity || 5;
+        spreadAngle = Phaser.Math.FloatBetween(-0.25, 0.25) * Math.max(0.1, 5 / dexVal); // More Dex = less shake
+        if (uiScene?.showNotification) {
+          uiScene.showNotification('💨 Tiro Inestable (Sin fuerza)', '#e94560');
+        }
+      }
+
       const arrow = this.physics.add.sprite(origin.x, origin.y, spriteKey);
       arrow.setDepth(12);
 
-      if (dir.x === 1) arrow.setAngle(0);
-      else if (dir.x === -1) arrow.setAngle(180);
-      else if (dir.y === 1) arrow.setAngle(90);
-      else if (dir.y === -1) arrow.setAngle(-90);
+      const baseAngle = dir.x === 1 ? 0 : dir.x === -1 ? Math.PI : dir.y === 1 ? Math.PI/2 : -Math.PI/2;
+      const finalAngle = baseAngle + spreadAngle;
+      arrow.setRotation(finalAngle);
 
-      const speed = isPiercing ? 350 : 200;
-      arrow.setVelocity(dir.x * speed, dir.y * speed);
+      arrow.setVelocity(Math.cos(finalAngle) * speed, Math.sin(finalAngle) * speed);
 
       this.physics.add.collider(arrow, this.mapLayer, () => arrow.destroy());
       
@@ -585,21 +750,57 @@ export default class WorldScene extends Phaser.Scene {
       this.physics.add.overlap(arrow, this.enemiesGroup, (arr, enemy) => {
         if (!arrow.hitEnemies.has(enemy)) {
           arrow.hitEnemies.add(enemy);
-          enemy.takeDamage(isPiercing ? weapon.damage * 2.5 : weapon.damage, dir);
-          if (isPiercing) {
-            enemy.body.setVelocity(dir.x * 100, dir.y * 100);
+
+          // Shatter Reaction: Perfect arrow on Frozen enemy
+          const isFrozen = this.time.now < enemy.frostTimer;
+          if (isPerfect && isFrozen) {
+            enemy.frostTimer = 0; // clear frost state
+            const bonusDamage = Math.ceil(damage * 1.5);
+            enemy.takeDamage(bonusDamage, dir, 'bow');
+            enemy.body.setVelocity(Math.cos(finalAngle) * 200, Math.sin(finalAngle) * 200);
+
+            const ui = this.scene.get(SCENES.UI);
+            if (ui?.showNotification) {
+              ui.showNotification('❄️ ¡REACCIÓN: SHATTER DE HIELO! ❄️', '#3498db');
+            }
+
+            // Ice shards explosion
+            const iceExplosion = this.add.particles(0, 0, 'particle_purple', {
+              speed: { min: 40, max: 150 },
+              scale: { start: 1.2, end: 0 },
+              blendMode: 'ADD',
+              lifespan: 600,
+              quantity: 25
+            });
+            iceExplosion.explode(25, enemy.x, enemy.y);
+            this.time.delayedCall(1000, () => iceExplosion.destroy());
+
+            // Splash damage to nearby enemies (48px)
+            this.enemiesGroup.getChildren().forEach(other => {
+              if (other !== enemy && other.active && !other.isDead) {
+                const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+                if (d < 48) {
+                  const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
+                  other.takeDamage(Math.ceil(damage * 0.75), { x: Math.cos(angle), y: Math.sin(angle) }, 'bow');
+                }
+              }
+            });
+          } else {
+            enemy.takeDamage(isPerfect ? damage * 1.5 : damage, dir, 'bow');
+            enemy.body.setVelocity(Math.cos(finalAngle) * (isPerfect ? 150 : 50), Math.sin(finalAngle) * (isPerfect ? 150 : 50));
           }
-          if (!isPiercing) arr.destroy();
+
+          if (!isPerfect) arr.destroy();
         }
       });
 
-      this.time.delayedCall(isPiercing ? 2000 : 1500, () => { if (arrow.active) arrow.destroy() });
+      this.time.delayedCall(isPerfect ? 2000 : 1500, () => { if (arrow.active) arrow.destroy() });
 
     } else if (weapon.key === WEAPONS.MAGIC.key) {
       const isAoE = chargeTime > 1000; // 1.0s charge
       
       if (isAoE) {
-        // Explode outward
+        // Explode outward (Ignition)
         const aoe = this.add.sprite(origin.x, origin.y, 'magic_aoe');
         aoe.setDepth(11);
         
@@ -618,8 +819,12 @@ export default class WorldScene extends Phaser.Scene {
           // Push away from player
           const angle = Phaser.Math.Angle.Between(origin.x, origin.y, enemy.x, enemy.y);
           const pushDir = { x: Math.cos(angle), y: Math.sin(angle) };
-          enemy.takeDamage(weapon.damage * 2, pushDir);
+          enemy.takeDamage(weapon.damage * 2, pushDir, 'magic');
           enemy.body.setVelocity(pushDir.x * 250, pushDir.y * 250); // huge push
+
+          // Apply Ignition (Burn status)
+          enemy.burnTimer = this.time.now + 4000; // 4s burn DOT
+          enemy.burnDamageTimer = this.time.now + 500;
         });
         
         this.cameras.main.shake(150, 0.01);
@@ -629,6 +834,7 @@ export default class WorldScene extends Phaser.Scene {
         });
         
       } else {
+        // Frost Bolt basic orb
         const orb = this.physics.add.sprite(origin.x, origin.y, 'magic_orb');
         orb.setDepth(12);
         orb.setVelocity(dir.x * 150, dir.y * 150);
@@ -646,7 +852,11 @@ export default class WorldScene extends Phaser.Scene {
           particles.destroy();
         });
         this.physics.add.overlap(orb, this.enemiesGroup, (o, enemy) => {
-          enemy.takeDamage(weapon.damage, dir);
+          enemy.takeDamage(weapon.damage, dir, 'magic');
+
+          // Apply Frost (Slow status)
+          enemy.frostTimer = this.time.now + 5000; // 5s slow
+
           o.destroy();
           particles.destroy();
         });
@@ -675,10 +885,14 @@ export default class WorldScene extends Phaser.Scene {
         }
         if (uiScene && uiScene.showNotification) uiScene.showNotification('Escudo Físico Desactivado', '#8b8b8b');
       } else {
-        if (this.player.mana >= 10) {
+        const cost = this.player.isUltimateActive ? 0 : 10;
+        if (this.player.mana >= cost) {
           this.player.hasPhysicalShield = true;
-          this.player.mana -= 10; // Activation cost
-          this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+          this.player.shieldActivatedAt = this.time.now;
+          if (cost > 0) {
+            this.player.mana -= cost;
+            this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+          }
           
           this.player.shieldBubble = this.add.sprite(origin.x, origin.y, 'shield_bubble');
           this.player.shieldBubble.setDepth(20);
@@ -689,9 +903,12 @@ export default class WorldScene extends Phaser.Scene {
         }
       }
     } else if (spell === 'ghost_swords') {
-      if (this.player.mana >= 15) {
-        this.player.mana -= 15;
-        this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+      const cost = this.player.isUltimateActive ? 0 : 15;
+      if (this.player.mana >= cost) {
+        if (cost > 0) {
+          this.player.mana -= cost;
+          this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+        }
         if (uiScene && uiScene.showNotification) uiScene.showNotification('Espadas Fantasma', '#a8dcf7');
         
         if (!this.ghostSwords) {
@@ -699,7 +916,7 @@ export default class WorldScene extends Phaser.Scene {
           this.physics.add.overlap(this.ghostSwords, this.enemiesGroup, (sword, enemy) => {
             if (sword.active && enemy.active && enemy.hp > 0) {
               const dir = { x: Math.sign(enemy.x - sword.x), y: Math.sign(enemy.y - sword.y) };
-              enemy.takeDamage(this.player._getScaledDamage(WEAPONS.MAGIC), dir);
+              enemy.takeDamage(this.player._getScaledDamage(WEAPONS.MAGIC), dir, 'magic');
               sword.destroy(); // one hit
             }
           });
@@ -800,13 +1017,7 @@ export default class WorldScene extends Phaser.Scene {
    * and starts 20-minute respawn cooldown stored in localStorage.
    */
   _handleChestOpen(tileX, tileY) {
-    const GOLD_RANGES = {
-      guild:       { min: 50,  max: 100 },
-      deeproot:    { min: 40,  max: 80  },
-      cueva_goblin:{ min: 80,  max: 150 },
-    };
-    const range = GOLD_RANGES[this.mapId] || { min: 50, max: 100 };
-    const goldAmount = Phaser.Math.Between(range.min, range.max);
+    const goldAmount = 20;
 
     this.player.addGold(goldAmount);
 
@@ -952,6 +1163,8 @@ export default class WorldScene extends Phaser.Scene {
       let level = 1;
       if (this.mapId === 'guild' && this.player) {
         level = this.player.level;
+      } else if (this.mapId === 'cueva_goblin') {
+        level = 2;
       }
       const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type, level);
       this.enemiesGroup.add(enemy);
@@ -970,6 +1183,8 @@ export default class WorldScene extends Phaser.Scene {
         let level = 1;
         if (this.mapId === 'guild' && this.player) {
           level = this.player.level;
+        } else if (this.mapId === 'cueva_goblin') {
+          level = 2;
         }
         const enemy = new Enemy(this, spawn.x * TILE_SIZE, spawn.y * TILE_SIZE, spawn.type, level);
         this.enemiesGroup.add(enemy);
@@ -989,6 +1204,16 @@ export default class WorldScene extends Phaser.Scene {
   //  INTERACTION SYSTEM (chests, signs)
   // ========================================================================
   _getNearbyTile() {
+    // Check standing tile first (for meditation mats)
+    let standX = Math.floor(this.player.x / TILE_SIZE);
+    let standY = Math.floor(this.player.y / TILE_SIZE);
+    if (standX >= 0 && standX < MAP_WIDTH && standY >= 0 && standY < MAP_HEIGHT) {
+      const standTileType = this._mapData[standY][standX];
+      if (standTileType === TILES.MEDITATION_MAT) {
+        return { x: standX, y: standY, tileType: standTileType };
+      }
+    }
+
     // Get the tile the player is facing
     let checkX = Math.floor(this.player.x / TILE_SIZE);
     let checkY = Math.floor(this.player.y / TILE_SIZE);
@@ -1036,7 +1261,7 @@ export default class WorldScene extends Phaser.Scene {
     }
 
     const tile = this._getNearbyTile();
-    if (tile && (tile.tileType === TILES.CHEST || tile.tileType === TILES.SIGN || tile.tileType === TILES.BULLETIN_BOARD)) {
+    if (tile && (tile.tileType === TILES.CHEST || tile.tileType === TILES.SIGN || tile.tileType === TILES.BULLETIN_BOARD || tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.MEDITATION_MAT || tile.tileType === TILES.STUDY_TABLE)) {
       this._interactPrompt.setPosition(
         tile.x * TILE_SIZE + TILE_SIZE / 2,
         tile.y * TILE_SIZE - 8
@@ -1083,8 +1308,168 @@ export default class WorldScene extends Phaser.Scene {
       }
 
     } else if (tile.tileType === TILES.BULLETIN_BOARD) {
-      this._showDailyMissionsBoard();
+      const receptionist = this.npcsGroup.getChildren().find(n => n.npcConfig?.dialogueKey === 'receptionist');
+      if (receptionist) {
+        this._handleNPCDialogue(receptionist);
+      } else {
+        this._showDailyMissionsBoard();
+      }
+    } else if (tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.STUDY_TABLE) {
+      this._handleStudyTableOpen(tile.x, tile.y);
+    } else if (tile.tileType === TILES.MEDITATION_MAT) {
+      this._handleMeditationMatOpen(tile.x, tile.y);
     }
+  }
+
+  _handleStudyTableOpen(tileX, tileY) {
+    const lines = [
+      '📚 MESA DE ESTUDIO',
+      'Frente a ti se encuentra el Grimorio del Gremio con antiguos conocimientos mágicos.',
+      '🌟 "Ser sincero y disciplinado lleva a que seas una verdadera leyenda. La acción de meditar o leer realmente depende de tu propio compromiso en el mundo real. ¡Conviértete en leyenda entrenando de verdad!"',
+      '¿Deseas sentarte a estudiar para aumentar tu nivel de magia?',
+      '⚠️ Estudiar consume 20 de Vitalidad (⚡) y toma 10 segundos de concentración.'
+    ];
+
+    const choices = [
+      {
+        text: 'Comenzar a Estudiar (10s)',
+        callback: () => {
+          this._startActivityProgress('study', 'intelligence', '#9b59b6', 'Estudio');
+        }
+      },
+      {
+        text: 'Cancelar',
+        callback: () => {}
+      }
+    ];
+
+    this.dialogueSystem.show('📚 Mesa de Estudio', lines, () => {
+      this.dialogueSystem.showChoices('📚 Mesa de Estudio', '¿Qué deseas hacer?', choices);
+    });
+  }
+
+  _handleMeditationMatOpen(tileX, tileY) {
+    const lines = [
+      '🧘 TAPETE DE MEDITACIÓN',
+      'Un lugar tranquilo, perfumado con incienso silvestre, ideal para calmar la mente.',
+      '🌟 "Ser sincero y disciplinado lleva a que seas una verdadera leyenda. La acción de meditar o leer realmente depende de tu propio compromiso en el mundo real. ¡Conviértete en leyenda entrenando de verdad!"',
+      '¿Deseas comenzar una meditación guiada para canalizar tu fuerza de voluntad?',
+      '⚠️ Meditar consume 20 de Vitalidad (⚡) y toma 10 segundos de paz interior.'
+    ];
+
+    const choices = [
+      {
+        text: 'Comenzar a Meditar (10s)',
+        callback: () => {
+          this._startActivityProgress('meditation', 'willpower', '#1abc9c', 'Meditación');
+        }
+      },
+      {
+        text: 'Cancelar',
+        callback: () => {}
+      }
+    ];
+
+    this.dialogueSystem.show('🧘 Tapete de Meditación', lines, () => {
+      this.dialogueSystem.showChoices('🧘 Tapete de Meditación', '¿Qué deseas hacer?', choices);
+    });
+  }
+
+  _startActivityProgress(activityId, branchKey, particleColorHex, activityName) {
+    const uiScene = this.scene.get(SCENES.UI);
+    
+    // Check vitality
+    if (this.player.vitality < 20) {
+      this.dialogueSystem.show(
+        '❌ Sin Energía',
+        [
+          '¡Tu cuerpo y mente están fatigados!',
+          'Para asimilar nuevos conocimientos o canalizar tu poder mental, necesitas Energía Vital activa.',
+          '¡Sal a hacer ejercicio físico en la vida real (Fuerza o Cardio) y regístralo para recargar tu Vitalidad!'
+        ]
+      );
+      return;
+    }
+
+    // Freeze player and start action
+    this.isPerformingAction = true;
+    this.player.body.setVelocity(0);
+    this.player.anims.stop();
+    
+    // Face down for front stance
+    this.player.facing = 'down';
+    this.player.setFrame(0);
+
+    // Progress bar UI in Phaser
+    const progressBg = this.add.rectangle(this.player.x, this.player.y - 20, 32, 6, 0x000000).setDepth(20);
+    const progressBar = this.add.rectangle(this.player.x - 16, this.player.y - 20, 0, 6, parseInt(particleColorHex.replace('#', '0x'))).setOrigin(0, 0.5).setDepth(20);
+
+    // Particles
+    const particles = this.add.particles(0, 0, 'particle_gold', {
+      x: { min: -12, max: 12 },
+      y: { min: -18, max: 8 },
+      speed: { min: 10, max: 30 },
+      scale: { start: 1, end: 0 },
+      lifespan: 800,
+      quantity: 1,
+      frequency: 150,
+      blendMode: 'ADD'
+    });
+    particles.startFollow(this.player);
+
+    if (uiScene && uiScene.showNotification) {
+      uiScene.showNotification(`Comenzando ${activityName}...`, particleColorHex);
+    }
+
+    // Tween for progress bar
+    this.tweens.add({
+      targets: progressBar,
+      width: 32,
+      duration: 10000,
+      onComplete: () => {
+        // Cleanup
+        progressBg.destroy();
+        progressBar.destroy();
+        particles.destroy();
+        this.isPerformingAction = false;
+
+        // Apply results
+        this.player.vitality -= 20;
+        this.player.gainBranchXP(branchKey, 50);
+
+        // Notify
+        this.game.events.emit('update-vitality', this.player.vitality);
+        if (uiScene && uiScene.showNotification) {
+          uiScene.showNotification(`¡${activityName} completado! -20 Vitalidad`, '#2ecc71');
+        }
+
+        // Show stat allocation popup
+        this.time.delayedCall(600, () => {
+          this._showStatAllocationDialog(branchKey);
+        });
+
+        // Save progress
+        SaveSystem.save(this.player.getSaveData());
+      }
+    });
+  }
+
+  _syncQuestsUI() {
+    // 1. Dailies accepted and not claimed
+    const activeDailies = this.dailyMissions.getMissions().filter(m => m.accepted && !m.claimed);
+
+    // 2. Active main quests
+    const activeMains = [];
+    for (const [id, q] of this.questSystem.quests.entries()) {
+      if (q.state === 'active' || q.state === 'complete') {
+        activeMains.push({
+          ...q,
+          progress: this.questSystem.questProgress.get(id) || 0
+        });
+      }
+    }
+
+    this.game.events.emit('update-quests', activeDailies, activeMains);
   }
 
   _showDailyMissionsBoard() {
@@ -1099,46 +1484,72 @@ export default class WorldScene extends Phaser.Scene {
       const progress = m.extraKill
         ? `${m.current}/${m.count} + ${m.extraProgress}/${m.extraKill.count}`
         : `${m.current}/${m.count}`;
-      const status = m.claimed ? '✅' : m.completed ? '🎁 ¡Listo para reclamar!' : `${m.icon} ${progress}`;
+      
+      let status = '';
+      if (m.claimed) {
+        status = '✅ Reclamada';
+      } else if (m.completed) {
+        status = '🎁 ¡Completada! (Reclámala abajo)';
+      } else if (m.accepted) {
+        status = `⚔️ Activa: ${progress}`;
+      } else {
+        status = '📌 Disponible';
+      }
+
       lines.push(`${i + 1}. ${m.title}: ${status}`);
       lines.push(`   ${m.desc}`);
       const rewardText = `${m.reward.gold} oro${m.reward.branchBonus ? ' + 1 punto extra' : ''}`;
       lines.push(`   Recompensa: ${rewardText}`);
     });
 
-    // Add claim choices for completed missions
+    // Accept choices
+    const available = missions.filter(m => !m.accepted);
+    available.forEach(m => {
+      choices.push({
+        text: `📌 Aceptar: ${m.title}`,
+        callback: () => {
+          this.dailyMissions.acceptMission(m.id);
+          this._syncQuestsUI();
+          SaveSystem.save(this.player.getSaveData());
+          // Redraw board
+          this.time.delayedCall(500, () => this._showDailyMissionsBoard());
+        }
+      });
+    });
+
+    // Claim choices
     const claimable = missions.filter(m => m.completed && !m.claimed);
-    if (claimable.length > 0) {
-      claimable.forEach(m => {
-        choices.push({
-          text: `🎁 Reclamar: ${m.title} (+${m.reward.gold} oro)`,
-          callback: () => {
-            const reward = this.dailyMissions.claimReward(m.id);
-            if (reward) {
-              this.player.addGold(reward.gold);
-              const uiScene = this.scene.get(SCENES.UI);
-              if (uiScene && uiScene.showNotification) {
-                uiScene.showNotification(`🎁 +${reward.gold} Oro (${m.title})`, '#f1c40f');
-              }
-              // Grant bonus branch point if applicable
-              if (reward.branchBonus) {
-                this.player.gainBranchXP(reward.branchBonus, 0);
-                this.time.delayedCall(400, () => this._showStatAllocationDialog(reward.branchBonus));
-              }
-              SaveSystem.save(this.player.getSaveData());
+    claimable.forEach(m => {
+      choices.push({
+        text: `🎁 Reclamar: ${m.title} (+${m.reward.gold} oro)`,
+        callback: () => {
+          const reward = this.dailyMissions.claimReward(m.id);
+          if (reward) {
+            this.player.addGold(reward.gold);
+            const uiScene = this.scene.get(SCENES.UI);
+            if (uiScene && uiScene.showNotification) {
+              uiScene.showNotification(`🎁 +${reward.gold} Oro (${m.title})`, '#f1c40f');
             }
+            if (reward.branchBonus) {
+              this.player.gainBranchXP(reward.branchBonus, 0);
+              this.time.delayedCall(400, () => this._showStatAllocationDialog(reward.branchBonus));
+            }
+            this._syncQuestsUI();
+            SaveSystem.save(this.player.getSaveData());
+            this.time.delayedCall(800, () => this._showDailyMissionsBoard());
           }
-        });
+        }
       });
-      this.dialogueSystem.show('📋 Tablón de Misiones', lines, () => {
-        this.dialogueSystem.showChoices('📋 Tablón de Misiones', '¿Qué deseas reclamar?', choices);
-      });
-    } else {
-      lines.push(this.dailyMissions.allClaimed()
-        ? '¡Felicidades! Completaste todas las misiones del día. 🏆'
-        : 'Vuelve cuando completes una misión para reclamar tu recompensa.');
-      this.dialogueSystem.show('📋 Tablón de Misiones', lines);
-    }
+    });
+
+    choices.push({
+      text: '❌ Salir',
+      callback: () => {}
+    });
+
+    this.dialogueSystem.show('📋 Tablón de Misiones', lines, () => {
+      this.dialogueSystem.showChoices('📋 Tablón de Misiones', '¿Qué deseas hacer?', choices);
+    });
   }
 
   _handleNPCDialogue(npc) {
@@ -1161,21 +1572,87 @@ export default class WorldScene extends Phaser.Scene {
         'Bienvenido a Gains & Goblins.',
         'Recuerda presionar L para registrar tus hábitos.',
         'Mientras más te esfuerces en el mundo real, ¡más fuerte te volverás aquí!',
-        'Ve a hablar con el Herrero o el Sabio si buscas qué hacer.'
+        'Habla con la Recepcionista si buscas misiones o suministros.'
       ]);
     } 
-    else if (npc.npcConfig.dialogueKey === 'shop') {
+    else if (npc.npcConfig.dialogueKey === 'receptionist') {
+      const choices = [
+        {
+          text: 'Ver Tabla de Misiones (Registro)',
+          callback: () => {
+            this._showDailyMissionsBoard();
+          }
+        },
+        {
+          text: 'Comprar Suministros (Agua / Café)',
+          callback: () => {
+            this.shopSystem.openShop(this.player);
+          }
+        },
+        {
+          text: 'Salir',
+          callback: () => {}
+        }
+      ];
+
       this.dialogueSystem.show(npc.npcConfig.name, [
-        '¡Saludos! He preparado algunas pociones frescas.',
-        '¿Necesitas algo para tu próxima aventura?'
+        '¡Hola! Bienvenido a la recepción del Gremio.',
+        'Aquí puedes registrar tus misiones diarias o comprar suministros para entrenar.',
+        '¿En qué te puedo ayudar hoy?'
       ], () => {
-        this.shopSystem.openShop(this.player);
+        this.dialogueSystem.showChoices(npc.npcConfig.name, '¿Qué deseas hacer?', choices);
       });
     }
-    else if (npc.npcConfig.dialogueKey === 'smith') {
+    else if (npc.npcConfig.dialogueKey === 'sage_librarian') {
+      const tips = [
+        '¡Saludos, joven mente! Para asimilar mejor la lectura, lee en bloques de 25 minutos y toma notas breves. ¡La mente también se entrena!',
+        'El conocimiento es el músculo del cerebro. Asegúrate de leer libros que desafíen tu intelecto. ¡Sube tu nivel de magia leyendo de verdad!',
+        'La meditación limpia el canal, pero la lectura aporta los hechizos. Intenta leer sin distracciones, apaga tu celular por 20 minutos.'
+      ];
+      const tip = Phaser.Utils.Array.GetRandom(tips);
       this.dialogueSystem.show(npc.npcConfig.name, [
-        '¡Aún estoy preparando mi fragua!',
-        'Vuelve más adelante cuando tenga armas a la venta.'
+        'Hola. Esta es la biblioteca mágica del Gremio.',
+        'Recuerda que la sabiduría mental complementa la fuerza física.',
+        `💡 Consejo de lectura: ${tip}`
+      ]);
+    }
+    else if (npc.npcConfig.dialogueKey === 'coach_strength') {
+      const tips = [
+        '¡Arriba esa barra! Recuerda calentar tus articulaciones antes de levantar peso pesado. La técnica es 100 veces más importante que el peso.',
+        'Mantén la espalda recta en el peso muerto. Si redondeas la columna, te arriesgas a una lesión. ¡Entrena con disciplina y cuida tu cuerpo!',
+        'El músculo crece en el descanso y la nutrición. No entrenes el mismo grupo todos los días; dale al menos 48 horas de recuperación.'
+      ];
+      const tip = Phaser.Utils.Array.GetRandom(tips);
+      this.dialogueSystem.show(npc.npcConfig.name, [
+        '¡Hey! ¡Espero que estés listo para machacar esos fierros hoy!',
+        'En la zona de pesas construimos la fuerza bruta necesaria para blandir espadas pesadas.',
+        `🏋️ Consejo de fuerza: ${tip}`
+      ]);
+    }
+    else if (npc.npcConfig.dialogueKey === 'coach_cardio') {
+      const tips = [
+        '¡Mantén el ritmo en la bicicleta! El cardio mejora tu resistencia cardiovascular y acelera la recuperación entre series. ¡Destreza al máximo!',
+        'No olvides hidratarte constantemente mientras corres. Si sientes dolor punzante en el pecho o mareo, detente de inmediato. ¡Salud ante todo!',
+        'Comienza con un trote suave de 5 minutos antes de sprinting. El calentamiento previene desgarres musculares. ¡Vamos por esos kilómetros!'
+      ];
+      const tip = Phaser.Utils.Array.GetRandom(tips);
+      this.dialogueSystem.show(npc.npcConfig.name, [
+        '¡Hola! ¡A sudar un poco en las bicicletas de cardio!',
+        'Aquí entrenamos tu destreza, agilidad y velocidad de ataque.',
+        `🏃 Consejo de cardio: ${tip}`
+      ]);
+    }
+    else if (npc.npcConfig.dialogueKey === 'coach_meditation') {
+      const tips = [
+        'Respira hondo... Siente el aire entrar y salir. La meditación no se trata de dejar la mente vacía, sino de observar tus pensamientos sin juzgar.',
+        'Si tu mente se distrae (y lo hará), simplemente regresa tu atención suavemente a la respiración. Esa es la verdadera repetición mental.',
+        'Cinco minutos de meditación diaria consciente valen más que una hora de meditación forzada una vez al mes. La consistencia es la clave.'
+      ];
+      const tip = Phaser.Utils.Array.GetRandom(tips);
+      this.dialogueSystem.show(npc.npcConfig.name, [
+        'Namasté. Bienvenido a la zona de meditación y yoga.',
+        'Aquí calmas tu mente y aumentas tu fuerza de voluntad.',
+        `🧘 Consejo de meditación: ${tip}`
       ]);
     }
     else if (npc.npcConfig.dialogueKey === 'quest') {
@@ -1291,6 +1768,184 @@ export default class WorldScene extends Phaser.Scene {
       `¡Ganaste 1 punto de ${branch.name}! ¿Cómo lo distribuyes?`,
       choices
     );
+  }
+
+  _activateUltimate() {
+    const time = this.time.now;
+    if (this.player.ultimateCooldown && time < this.player.ultimateCooldown + 60000) {
+      const remaining = Math.ceil((this.player.ultimateCooldown + 60000 - time) / 1000);
+      const uiScene = this.scene.get(SCENES.UI);
+      if (uiScene?.showNotification) {
+        uiScene.showNotification(`Definitiva en enfriamiento (${remaining}s)`, '#8b8b8b');
+      }
+      return;
+    }
+    
+    if (!this.player.hasLoggedActivityToday()) {
+      const uiScene = this.scene.get(SCENES.UI);
+      if (uiScene?.showNotification) {
+        uiScene.showNotification('¡Necesitas registrar hábitos hoy!', '#e94560');
+      }
+      return;
+    }
+
+    this.player.isUltimateActive = true;
+    this.player.ultimateActivatedAt = time;
+    this.player.ultimateCooldown = time;
+    
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene?.showNotification) {
+      uiScene.showNotification('🌟 ¡RÁFAGA DE DISCIPLINA! 🌟', '#ffd700');
+    }
+    this.cameras.main.flash(400, 255, 215, 0);
+
+    // Aura particles
+    this.ultimateParticles = this.add.particles(0, 0, 'particle_gold', {
+      speed: { min: 20, max: 50 },
+      scale: { start: 1, end: 0 },
+      blendMode: 'ADD',
+      lifespan: 600,
+      frequency: 40,
+      quantity: 1
+    });
+    this.ultimateParticles.startFollow(this.player);
+
+    this.time.delayedCall(15000, () => {
+      this.player.isUltimateActive = false;
+      if (this.ultimateParticles) {
+        this.ultimateParticles.destroy();
+        this.ultimateParticles = null;
+      }
+      const ui = this.scene.get(SCENES.UI);
+      if (ui?.showNotification) {
+        ui.showNotification('Definitiva terminada', '#8b8b8b');
+      }
+    });
+  }
+
+  _drawComboIndicator() {
+    this.comboIndicator.clear();
+    if (this.player.isDead || this.player.currentWeaponKey !== WEAPONS.SWORD.key) return;
+
+    const cooldown = this.player.getAttackCooldown();
+    const resVal = this.player.stats.resistance || 5;
+    const comboWindow = 600 + (resVal - 5) * 40;
+    const elapsed = this.time.now - this.player.lastAttackTime;
+
+    if (elapsed < cooldown + comboWindow) {
+      const px = this.player.x;
+      const py = this.player.y + 14;
+      
+      this.comboIndicator.fillStyle(0x000000, 0.6);
+      this.comboIndicator.fillRect(px - 10, py, 20, 3);
+
+      if (elapsed < cooldown) {
+        const pct = elapsed / cooldown;
+        this.comboIndicator.fillStyle(0xe74c3c, 1);
+        this.comboIndicator.fillRect(px - 10, py, 20 * pct, 3);
+      } else {
+        const alpha = Math.sin(this.time.now * 0.05) > 0 ? 1 : 0.6;
+        this.comboIndicator.fillStyle(0x2ecc71, alpha);
+        this.comboIndicator.fillRect(px - 10, py, 20, 3);
+        
+        this.comboIndicator.lineStyle(1, 0xffffff, alpha);
+        this.comboIndicator.strokeRect(px - 11, py - 1, 22, 5);
+      }
+    }
+  }
+
+  _drawTrajectoryLine() {
+    this.trajectoryIndicator.clear();
+    if (this.player.isDead || !this.player.isCharging || this.player.currentWeaponKey !== WEAPONS.BOW.key) return;
+
+    const chargeDur = this.time.now - this.player.chargeStartTime;
+    const speedVal = this.player.stats.speed || 5;
+    const chargeTarget = Math.max(400, 1000 - (speedVal - 5) * 50);
+
+    let color = 0x888888;
+    let alpha = 0.5;
+    let isPerfect = false;
+    let isOvercharged = false;
+
+    if (chargeDur >= chargeTarget * 0.8 && chargeDur <= chargeTarget * 1.2) {
+      color = 0x2ecc71;
+      alpha = 0.9;
+      isPerfect = true;
+    } else if (chargeDur > chargeTarget * 1.2 && chargeDur <= chargeTarget * 1.5) {
+      color = 0xff8c00;
+      alpha = 0.7;
+    } else if (chargeDur > chargeTarget * 1.5) {
+      color = 0xff0000;
+      alpha = 0.8;
+      isOvercharged = true;
+    }
+
+    let ox = 0, oy = 0;
+    if (this.player.facing === 'left') ox = -1;
+    if (this.player.facing === 'right') ox = 1;
+    if (this.player.facing === 'up') oy = -1;
+    if (this.player.facing === 'down') oy = 1;
+
+    const maxLen = isPerfect ? 120 : (isOvercharged ? 60 : Math.min(100, (chargeDur / chargeTarget) * 100));
+
+    this.trajectoryIndicator.lineStyle(1.5, color, alpha);
+    
+    let startX = this.player.x;
+    let startY = this.player.y;
+    let endX = startX + ox * maxLen;
+    let endY = startY + oy * maxLen;
+
+    if (isOvercharged) {
+      const jitterX = Math.sin(this.time.now * 0.2) * 4;
+      const jitterY = Math.cos(this.time.now * 0.2) * 4;
+      endX += jitterX;
+      endY += jitterY;
+    }
+
+    this.trajectoryIndicator.lineBetween(startX, startY, endX, endY);
+    
+    this.trajectoryIndicator.fillStyle(color, alpha);
+    this.trajectoryIndicator.fillCircle(endX, endY, isPerfect ? 3 : 2);
+  }
+
+  handleParry(data) {
+    const { origin, amount } = data;
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene?.showNotification) {
+      uiScene.showNotification('🛡️ ¡PARRY PERFECTO! Contraataque', '#ffd700');
+    }
+
+    // Visual parry flash and shake
+    this.cameras.main.flash(200, 255, 215, 0);
+    this.cameras.main.shake(150, 0.005);
+
+    // Blast graphics
+    const blast = this.add.circle(origin.x, origin.y, 10, 0xffd700, 0.6);
+    this.tweens.add({
+      targets: blast,
+      radius: 64,
+      alpha: 0,
+      duration: 350,
+      onComplete: () => blast.destroy()
+    });
+
+    // Stun and damage surrounding enemies (64px radius)
+    this.enemiesGroup.getChildren().forEach(enemy => {
+      if (!enemy.active || enemy.isDead) return;
+      const dist = Phaser.Math.Distance.Between(origin.x, origin.y, enemy.x, enemy.y);
+      if (dist < 64) {
+        const angle = Phaser.Math.Angle.Between(origin.x, origin.y, enemy.x, enemy.y);
+        const pushDir = { x: Math.cos(angle), y: Math.sin(angle) };
+        
+        enemy.takeDamage(amount * 2, pushDir, 'parry');
+        enemy.body.setVelocity(pushDir.x * 220, pushDir.y * 220);
+        
+        enemy.isStunned = true;
+        this.time.delayedCall(1500, () => {
+          if (enemy && enemy.active) enemy.isStunned = false;
+        });
+      }
+    });
   }
 }
 // Helper function defined outside class to avoid this-binding issues inside other methods if needed

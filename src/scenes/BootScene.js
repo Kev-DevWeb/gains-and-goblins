@@ -97,6 +97,7 @@ export default class BootScene extends Phaser.Scene {
       case TILES.DUNGEON_WALL:    this._drawDungeonWall(ctx, C); break;
       case TILES.LAVA:            this._drawLava(ctx, C); break;
       case TILES.CAVE_ENTRANCE:   this._drawCaveEntrance(ctx, C); break;
+      case TILES.STUDY_TABLE:     this._drawStudyTable(ctx, C); break;
       default:
         // Fallback – magenta so missing tiles are obvious
         ctx.fillStyle = '#ff00ff';
@@ -455,6 +456,34 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillRect(13, 13, 2, 2);
   }
 
+  _drawStudyTable(ctx, C) {
+    // Guild floor behind table/chair
+    this._drawGuildFloor(ctx, C);
+    
+    // Chair (dark wood, placed on the left side of tile)
+    ctx.fillStyle = '#3e2723';
+    ctx.fillRect(2, 6, 4, 6); // Chair seat
+    ctx.fillStyle = '#271911';
+    ctx.fillRect(2, 3, 1, 9); // Backrest left
+    ctx.fillRect(5, 3, 1, 9); // Backrest right
+    ctx.fillRect(2, 3, 4, 1); // Backrest top bar
+    
+    // Table (lighter wood, on the right side)
+    ctx.fillStyle = '#5c4033';
+    ctx.fillRect(7, 4, 8, 10); // Tabletop
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(8, 5, 6, 8);  // Inset highlight
+    
+    // Book on table
+    ctx.fillStyle = '#e74c3c'; // red cover
+    ctx.fillRect(9, 7, 4, 3);
+    ctx.fillStyle = '#f8f9fa'; // white sheets
+    ctx.fillRect(10, 7, 2, 3);
+    ctx.fillStyle = '#ffd700'; // ribbon
+    ctx.fillRect(11, 6, 1, 1);
+  }
+
+
   _drawArenaFloor(ctx, C) {
     ctx.fillStyle = C.ARENA_FLOOR?.primary || '#c0392b';
     ctx.fillRect(0, 0, 16, 16);
@@ -712,6 +741,8 @@ export default class BootScene extends Phaser.Scene {
   _generateEnemies() {
     this._generateSlime();
     this._generateGoblin();
+    this._generateGoblinBow();
+    this._generateGoblinMage();
     this._generateSkeleton();
     this._generateEnemyGoblinKing();
   }
@@ -724,6 +755,10 @@ export default class BootScene extends Phaser.Scene {
       { key: 'npc_villager', tunic: '#6b5b3a', tunicH: '#8b7b5a', hair: '#8b6914' },
       { key: 'npc_smith',    tunic: '#5a2a0a', tunicH: '#7a4a2a', hair: '#2a2a2a' },
       { key: 'npc_sage',     tunic: '#3a2a6b', tunicH: '#5a4a8b', hair: '#c0c0c0' },
+      { key: 'npc_receptionist', tunic: '#2c3e50', tunicH: '#34495e', hair: '#e67e22' },
+      { key: 'npc_coach_strength', tunic: '#c0392b', tunicH: '#e74c3c', hair: '#2c3e50' },
+      { key: 'npc_coach_cardio', tunic: '#27ae60', tunicH: '#2ecc71', hair: '#f1c40f' },
+      { key: 'npc_monk',     tunic: '#d35400', tunicH: '#e67e22', hair: '#3a2a1a' },
     ];
 
     npcConfigs.forEach(cfg => {
@@ -857,8 +892,84 @@ export default class BootScene extends Phaser.Scene {
     canvas.refresh();
   }
 
+  _generateGoblinBow() {
+    const canvas = this.textures.createCanvas('enemy_goblin_arquero', 16, 16);
+    const ctx = canvas.getContext();
+    // Head (greenish skin)
+    ctx.fillStyle = '#6b8e23';
+    ctx.fillRect(5, 1, 6, 5);
+    // Pointy ears
+    ctx.fillRect(3, 2, 2, 2);
+    ctx.fillRect(11, 2, 2, 2);
+    // Eyes (angry red)
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(6, 3, 2, 1);
+    ctx.fillRect(9, 3, 2, 1);
+    // Body (leather vest)
+    ctx.fillStyle = '#b07d4b';
+    ctx.fillRect(5, 6, 6, 5);
+    // Arms (green skin)
+    ctx.fillStyle = '#6b8e23';
+    ctx.fillRect(3, 7, 2, 4);
+    ctx.fillRect(11, 7, 2, 4);
+    // Bow in right hand
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(13, 5, 2, 6);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(12, 6, 1, 4);
+    // Legs
+    ctx.fillStyle = '#6b8e23';
+    ctx.fillRect(5, 11, 2, 3);
+    ctx.fillRect(9, 11, 2, 3);
+    // Feet
+    ctx.fillStyle = '#4a3520';
+    ctx.fillRect(5, 14, 3, 2);
+    ctx.fillRect(9, 14, 3, 2);
+    canvas.refresh();
+  }
+
+  _generateGoblinMage() {
+    const canvas = this.textures.createCanvas('enemy_goblin_mago', 16, 16);
+    const ctx = canvas.getContext();
+    // Head (greenish skin)
+    ctx.fillStyle = '#6b8e23';
+    ctx.fillRect(5, 2, 6, 4);
+    // Pointy ears
+    ctx.fillRect(3, 3, 2, 2);
+    ctx.fillRect(11, 3, 2, 2);
+    // Eyes (angry red)
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(6, 4, 2, 1);
+    ctx.fillRect(9, 4, 2, 1);
+    // Wizard Hat (purple)
+    ctx.fillStyle = '#6c3483';
+    ctx.fillRect(4, 1, 8, 1);
+    ctx.fillRect(5, 0, 6, 1);
+    // Body (purple robe)
+    ctx.fillStyle = '#6c3483';
+    ctx.fillRect(5, 6, 6, 6);
+    // Arms (purple sleeves)
+    ctx.fillStyle = '#6c3483';
+    ctx.fillRect(3, 7, 2, 4);
+    ctx.fillRect(11, 7, 2, 4);
+    // Staff in right hand
+    ctx.fillStyle = '#8b6914';
+    ctx.fillRect(13, 5, 1, 7);
+    ctx.fillStyle = '#a855f7';
+    ctx.fillRect(12, 3, 3, 2);
+    // Legs
+    ctx.fillStyle = '#6b8e23';
+    ctx.fillRect(5, 12, 2, 2);
+    ctx.fillRect(9, 12, 2, 2);
+    // Feet
+    ctx.fillStyle = '#4a3520';
+    ctx.fillRect(5, 14, 3, 2);
+    ctx.fillRect(9, 14, 3, 2);
+    canvas.refresh();
+  }
+
   _generateSkeleton() {
-    const canvas = this.textures.createCanvas('enemy_skeleton', 16, 16);
+    const canvas = this.textures.createCanvas('enemy_esqueleto', 16, 16);
     const ctx = canvas.getContext();
     // Skull
     ctx.fillStyle = '#e0ddd0';
@@ -900,7 +1011,7 @@ export default class BootScene extends Phaser.Scene {
   }
 
   _generateEnemyGoblinKing() {
-    const canvas = this.textures.createCanvas('enemy_goblin_king', 24, 24);
+    const canvas = this.textures.createCanvas('enemy_rey_goblin', 24, 24);
     const ctx = canvas.getContext();
     // Body (golden/orange)
     ctx.fillStyle = '#ff9900';
