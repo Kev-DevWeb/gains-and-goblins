@@ -15,6 +15,8 @@ export default class DialogueSystem {
     this.isTyping = false;
     this.selectedChoiceIndex = 0;
     this.choiceButtons = [];
+    this._lineCompleteCallback = null;
+    this._audioCtx = null;
 
     this._createUI();
   }
@@ -126,10 +128,16 @@ export default class DialogueSystem {
         const btn = document.createElement('div');
         btn.className = 'dialogue-choice';
         btn.textContent = `${i + 1}. ${choice.text}`;
-        btn.onmouseenter = () => this._setSelectedChoice(i);
+        btn.onmouseenter = () => {
+          if (this.selectedChoiceIndex !== i) {
+            this._setSelectedChoice(i);
+            this._playUiBeep('move');
+          }
+        };
         
         // Handle click
         btn.onclick = () => {
+          this._playUiBeep('confirm');
           this.hide();
           if (choice.callback) choice.callback();
         };
@@ -174,6 +182,7 @@ export default class DialogueSystem {
         const key = this.scene.input.keyboard.addKey(code);
         key.on('down', () => {
           if (!this.isActive) return;
+          this._playUiBeep('confirm');
           this.hide();
           if (choice.callback) choice.callback();
         });
@@ -228,6 +237,13 @@ export default class DialogueSystem {
       this.textEl.textContent = this.lines[this.currentLineIndex];
       this.isTyping = false;
       this.indicatorEl.classList.add('visible');
+
+      // If this line had a completion callback (e.g. to render choices), run it.
+      if (this._lineCompleteCallback) {
+        const cb = this._lineCompleteCallback;
+        this._lineCompleteCallback = null;
+        cb();
+      }
     } else {
       // Next line
       this.currentLineIndex++;
@@ -272,6 +288,7 @@ export default class DialogueSystem {
 
   _typeLine(onLineComplete = null) {
     if (this.typeTimer) clearInterval(this.typeTimer);
+    this._lineCompleteCallback = onLineComplete;
     
     this.lastLineStartTime = this.scene.time.now;
     this.indicatorEl.classList.remove('visible');
@@ -292,7 +309,11 @@ export default class DialogueSystem {
         clearInterval(this.typeTimer);
         this.isTyping = false;
         this.indicatorEl.classList.add('visible');
-        if (onLineComplete) onLineComplete();
+        if (this._lineCompleteCallback) {
+          const cb = this._lineCompleteCallback;
+          this._lineCompleteCallback = null;
+          cb();
+        }
       }
     }, 30); // 30ms per char
   }
@@ -313,12 +334,56 @@ export default class DialogueSystem {
     if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
     const len = this.choiceButtons.length;
     const next = (this.selectedChoiceIndex + delta + len) % len;
+    this._playUiBeep('move');
     this._setSelectedChoice(next);
   }
 
   _activateSelectedChoice() {
     if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
+    this._playUiBeep('confirm');
     const btn = this.choiceButtons[this.selectedChoiceIndex];
     if (btn && typeof btn.click === 'function') btn.click();
+  }
+
+  _playUiBeep(kind = 'move') {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+
+      if (!this._audioCtx) {
+        this._audioCtx = new Ctx();
+      }
+      if (this._audioCtx.state === 'suspended') {
+        this._audioCtx.resume();
+      }
+
+      const ctx = this._audioCtx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      const now = ctx.currentTime;
+      if (kind === 'confirm') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(420, now);
+        osc.frequency.exponentialRampToValueAtTime(620, now + 0.08);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      } else {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(280, now);
+        osc.frequency.exponentialRampToValueAtTime(320, now + 0.04);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.02, now + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      }
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } catch (e) {
+      // Ignore audio errors to keep dialogue functional on restricted browsers.
+    }
   }
 }
