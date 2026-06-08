@@ -7,7 +7,23 @@
 
 const SAVE_KEY = 'gains_goblins_save';
 const USER_ID_KEY = 'gains_goblins_user_id';
-const BACKEND_URL = 'http://localhost:3001/api';
+
+function getBackendUrl() {
+  const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:3001/api';
+  }
+
+  // In production, Vercel should point this at the deployed API origin.
+  return '/api';
+}
+
+const BACKEND_URL = getBackendUrl();
 
 export default class SaveSystem {
   static getUserId() {

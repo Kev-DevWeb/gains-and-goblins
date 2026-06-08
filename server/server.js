@@ -8,10 +8,23 @@ dotenv.config();
 const prisma = new PrismaClient();
 const app = express();
 
-app.use(cors());
+const frontendUrl = process.env.FRONTEND_URL?.trim();
+const corsOptions = frontendUrl
+  ? {
+      origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:5173'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    }
+  : undefined;
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
+
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, service: 'gains-and-goblins-api' });
+});
 
 // ── AUTH ENDPOINTS ───────────────────────────────────────────
 
