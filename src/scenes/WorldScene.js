@@ -20,6 +20,8 @@ export default class WorldScene extends Phaser.Scene {
     this.spawnId = data?.spawnId || 'default';
     this.isTransitioning = false;
     this.isPerformingAction = false;
+    this._lastAttackHandledAt = 0;
+    this._lastAttackSignature = null;
   }
 
   create() {
@@ -256,132 +258,25 @@ export default class WorldScene extends Phaser.Scene {
     this.trajectoryIndicator = this.add.graphics({ depth: 8 });
 
     // ── Events ──
+    this.events.off('player-attack', this.handleAttack, this);
+    this.events.off('player-spell', this.handleSpellcast, this);
+    this.events.off('player-parry', this.handleParry, this);
+    this.events.off('enemy-died', this._onEnemyDied, this);
+    this.game.events.off('activity-logged', this._onActivityLogged, this);
+    this.game.events.off('player-died', this._onPlayerDied, this);
+    this.game.events.off('player-respawned', this._onPlayerRespawned, this);
+    this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
+    this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
+
     this.events.on('player-attack', this.handleAttack, this);
     this.events.on('player-spell', this.handleSpellcast, this);
     this.events.on('player-parry', this.handleParry, this);
-
-    // Handle enemy deaths → give gold & track quests
-    this.events.on('enemy-died', (enemy) => {
-      let goldDrop = Phaser.Math.Between(1, 3);
-      
-      // Boss drop
-      if (enemy.typeConfig.isBoss) {
-        goldDrop = 150;
-        // Boss death dramatic effect
-        this.cameras.main.flash(800, 255, 215, 0); // Gold flash
-        this.cameras.main.shake(1000, 0.02);
-      }
-
-      this.player.addGold(goldDrop);
-
-      const uiScene = this.scene.get(SCENES.UI);
-      if (uiScene && uiScene.showNotification) {
-        uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
-      }
-      
-      // Track quest
-      this.questSystem.trackKill(enemy.typeConfig.name);
-
-      // Track daily mission
-      this.dailyMissions.trackKill(enemy.typeConfig.name, this.mapId);
-
-      // Sync HUD panel
-      this._syncQuestsUI();
-
-      // Auto-save after enemy kill
-      SaveSystem.save(this.player.getSaveData());
-    });
-
-    // Handle activities logged from the HTML modal
-    this.game.events.on('activity-logged', (activityId) => {
-      const activity = Object.values(ACTIVITIES).find(a => a.id === activityId);
-      if (!activity) return;
-
-      // Check daily cooldown
-      const today = new Date().toISOString().split('T')[0];
-      if (this.player.activitiesToday[activityId] === today) {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          uiScene.showNotification('Ya registraste esta actividad hoy', '#e94560');
-        }
-        return;
-      }
-
-      // Mark as done today
-      this.player.activitiesToday[activityId] = today;
-
-      // Add Vitality for physical exercises (strength / dexterity)
-      if (activity.branch === 'strength' || activity.branch === 'dexterity') {
-        const prevVit = this.player.vitality;
-        this.player.vitality = Math.min(300, this.player.vitality + 100);
-        this.game.events.emit('update-vitality', this.player.vitality);
-        this.time.delayedCall(1500, () => {
-          const ui = this.scene.get(SCENES.UI);
-          if (ui && ui.showNotification) {
-            ui.showNotification(`💪 ¡Energía Vital! +100 (${prevVit} ➔ ${this.player.vitality})`, '#2ecc71');
-          }
-        });
-      }
-
-      // Grant branch XP (unspent point)
-      this.player.gainBranchXP(activity.branch, activity.xpReward);
-
-      // Update monthly affinity tracking
-      const prevBranch = this.player.dominantBranch;
-      this.player.trackAffinityActivity(activity.branch);
-      const newBranch = this.player.dominantBranch;
-
-      const branchDef = BRANCHES[activity.branch];
-      const branchName = branchDef ? `${branchDef.icon} ${branchDef.name}` : activity.branch;
-
-      const uiScene = this.scene.get(SCENES.UI);
-      if (uiScene && uiScene.showNotification) {
-        uiScene.showNotification(`¡+1 punto de ${branchName}!`, '#a855f7');
-        if (newBranch && newBranch !== prevBranch) {
-          this.time.delayedCall(1200, () => {
-            const ui = this.scene.get(SCENES.UI);
-            if (ui && ui.showNotification) ui.showNotification(`¡Afinidad Orgánica: ${branchName} +15% daño!`, '#f1c40f');
-          });
-        }
-      }
-
-      // Show stat allocation dialog (Fable-style)
-      this.time.delayedCall(600, () => {
-        this._showStatAllocationDialog(activity.branch);
-      });
-
-      // Track daily mission activity
-      this.dailyMissions.trackActivity(activity.branch);
-
-      // Sync HUD panel
-      this._syncQuestsUI();
-
-      // Notify if all daily missions done
-      if (this.dailyMissions.allClaimed()) {
-        this.time.delayedCall(2000, () => {
-          const ui = this.scene.get(SCENES.UI);
-          if (ui && ui.showNotification) ui.showNotification('🏆 ¡Misiones del día completadas!', '#f1c40f');
-        });
-      }
-
-      // Auto-save after activity
-      SaveSystem.save(this.player.getSaveData(), { type: activityId, xpEarned: activity.xpReward });
-    });
-
-    // Handle player death (for camera effects)
-    this.game.events.on('player-died', () => {
-      this.cameras.main.flash(400, 200, 0, 0);
-      this.cameras.main.shake(300, 0.01);
-    });
-
-    // Handle player respawn
-    this.game.events.on('player-respawned', () => {
-      this.cameras.main.fadeIn(500);
-    });
-
-    // Quick-use item listeners (from HTML HUD)
-    this.game.events.on('quick-use-hp', () => this.player.consumeItem('potion_hp'));
-    this.game.events.on('quick-use-mp', () => this.player.consumeItem('potion_mp'));
+    this.events.on('enemy-died', this._onEnemyDied, this);
+    this.game.events.on('activity-logged', this._onActivityLogged, this);
+    this.game.events.on('player-died', this._onPlayerDied, this);
+    this.game.events.on('player-respawned', this._onPlayerRespawned, this);
+    this.game.events.on('quick-use-hp', this._onQuickUseHp, this);
+    this.game.events.on('quick-use-mp', this._onQuickUseMp, this);
 
     // ── Initial UI sync ──
     this.time.delayedCall(100, () => {
@@ -482,7 +377,119 @@ export default class WorldScene extends Phaser.Scene {
     // Clean up event listener when scene shuts down
     this.events.once('shutdown', () => {
       window.removeEventListener('character-synced', this._characterSyncedListener);
+      this.events.off('player-attack', this.handleAttack, this);
+      this.events.off('player-spell', this.handleSpellcast, this);
+      this.events.off('player-parry', this.handleParry, this);
+      this.events.off('enemy-died', this._onEnemyDied, this);
+      this.game.events.off('activity-logged', this._onActivityLogged, this);
+      this.game.events.off('player-died', this._onPlayerDied, this);
+      this.game.events.off('player-respawned', this._onPlayerRespawned, this);
+      this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
+      this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
     });
+  }
+
+  _onEnemyDied(enemy) {
+    let goldDrop = Phaser.Math.Between(1, 3);
+
+    if (enemy.typeConfig.isBoss) {
+      goldDrop = 150;
+      this.cameras.main.flash(800, 255, 215, 0);
+      this.cameras.main.shake(1000, 0.02);
+    }
+
+    this.player.addGold(goldDrop);
+
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene && uiScene.showNotification) {
+      uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
+    }
+
+    this.questSystem.trackKill(enemy.typeConfig.name);
+    this.dailyMissions.trackKill(enemy.typeConfig.name, this.mapId);
+    this._syncQuestsUI();
+    SaveSystem.save(this.player.getSaveData());
+  }
+
+  _onActivityLogged(activityId) {
+    const activity = Object.values(ACTIVITIES).find(a => a.id === activityId);
+    if (!activity) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    if (this.player.activitiesToday[activityId] === today) {
+      const uiScene = this.scene.get(SCENES.UI);
+      if (uiScene && uiScene.showNotification) {
+        uiScene.showNotification('Ya registraste esta actividad hoy', '#e94560');
+      }
+      return;
+    }
+
+    this.player.activitiesToday[activityId] = today;
+
+    if (activity.branch === 'strength' || activity.branch === 'dexterity') {
+      const prevVit = this.player.vitality;
+      this.player.vitality = Math.min(300, this.player.vitality + 100);
+      this.game.events.emit('update-vitality', this.player.vitality);
+      this.time.delayedCall(1500, () => {
+        const ui = this.scene.get(SCENES.UI);
+        if (ui && ui.showNotification) {
+          ui.showNotification(`💪 ¡Energía Vital! +100 (${prevVit} ➔ ${this.player.vitality})`, '#2ecc71');
+        }
+      });
+    }
+
+    this.player.gainBranchXP(activity.branch, activity.xpReward);
+
+    const prevBranch = this.player.dominantBranch;
+    this.player.trackAffinityActivity(activity.branch);
+    const newBranch = this.player.dominantBranch;
+
+    const branchDef = BRANCHES[activity.branch];
+    const branchName = branchDef ? `${branchDef.icon} ${branchDef.name}` : activity.branch;
+
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene && uiScene.showNotification) {
+      uiScene.showNotification(`¡+1 punto de ${branchName}!`, '#a855f7');
+      if (newBranch && newBranch !== prevBranch) {
+        this.time.delayedCall(1200, () => {
+          const ui = this.scene.get(SCENES.UI);
+          if (ui && ui.showNotification) ui.showNotification(`¡Afinidad Orgánica: ${branchName} +15% daño!`, '#f1c40f');
+        });
+      }
+    }
+
+    this.time.delayedCall(600, () => {
+      this._showStatAllocationDialog(activity.branch);
+    });
+
+    this.dailyMissions.trackActivity(activity.branch);
+    this._syncQuestsUI();
+
+    if (this.dailyMissions.allClaimed()) {
+      this.time.delayedCall(2000, () => {
+        const ui = this.scene.get(SCENES.UI);
+        if (ui && ui.showNotification) ui.showNotification('🏆 ¡Misiones del día completadas!', '#f1c40f');
+      });
+    }
+
+    SaveSystem.save(this.player.getSaveData(), { type: activityId, xpEarned: activity.xpReward });
+  }
+
+  _onPlayerDied() {
+    this.cameras.main.flash(400, 200, 0, 0);
+    this.cameras.main.shake(300, 0.01);
+  }
+
+  _onPlayerRespawned() {
+    this.cameras.main.fadeIn(500);
+  }
+
+  _onQuickUseHp() {
+    this.player.consumeItem('potion_hp');
+  }
+
+  _onQuickUseMp() {
+    this.player.consumeItem('potion_mp');
   }
 
   // ── UPDATE ──
@@ -595,6 +602,16 @@ export default class WorldScene extends Phaser.Scene {
   // ========================================================================
   handleAttack(data) {
     const { weapon, dir, origin, chargeTime, comboStep } = data;
+
+    // Guard against duplicate attack events in the same tick/window.
+    const attackSig = `${weapon.key}:${Math.round(origin.x)}:${Math.round(origin.y)}:${comboStep || 0}:${Math.round(chargeTime / 50)}`;
+    const now = this.time.now;
+    if (this._lastAttackSignature === attackSig && (now - this._lastAttackHandledAt) < 80) {
+      return;
+    }
+    this._lastAttackSignature = attackSig;
+    this._lastAttackHandledAt = now;
+
     const isCharged = chargeTime > 800; // 0.8s charge
 
     if (weapon.key === WEAPONS.SWORD.key) {
@@ -651,8 +668,12 @@ export default class WorldScene extends Phaser.Scene {
       const size = 24 * scale;
       const hitbox = this.add.rectangle(slash.x, slash.y, size, size, 0xff0000, 0);
       this.physics.add.existing(hitbox);
+      const hitEnemies = new Set();
 
       const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
+        if (hitEnemies.has(enemy)) return;
+        hitEnemies.add(enemy);
+
         // Thermal Explosion Reaction: Sword combo on Burning enemy
         const isBurning = this.time.now < enemy.burnTimer;
         if (step > 0 && isBurning) {
@@ -814,8 +835,12 @@ export default class WorldScene extends Phaser.Scene {
         
         const hitbox = this.add.circle(origin.x, origin.y, 40, 0xff0000, 0);
         this.physics.add.existing(hitbox);
+        const hitEnemies = new Set();
         
         const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
+          if (hitEnemies.has(enemy)) return;
+          hitEnemies.add(enemy);
+
           // Push away from player
           const angle = Phaser.Math.Angle.Between(origin.x, origin.y, enemy.x, enemy.y);
           const pushDir = { x: Math.cos(angle), y: Math.sin(angle) };
@@ -1261,7 +1286,7 @@ export default class WorldScene extends Phaser.Scene {
     }
 
     const tile = this._getNearbyTile();
-    if (tile && (tile.tileType === TILES.CHEST || tile.tileType === TILES.SIGN || tile.tileType === TILES.BULLETIN_BOARD || tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.MEDITATION_MAT || tile.tileType === TILES.STUDY_TABLE)) {
+    if (tile && (tile.tileType === TILES.CHEST || tile.tileType === TILES.SIGN || tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.MEDITATION_MAT || tile.tileType === TILES.STUDY_TABLE)) {
       this._interactPrompt.setPosition(
         tile.x * TILE_SIZE + TILE_SIZE / 2,
         tile.y * TILE_SIZE - 8
@@ -1307,13 +1332,6 @@ export default class WorldScene extends Phaser.Scene {
         uiScene.showNotification(`📜 ${msg}`, '#c4a35a');
       }
 
-    } else if (tile.tileType === TILES.BULLETIN_BOARD) {
-      const receptionist = this.npcsGroup.getChildren().find(n => n.npcConfig?.dialogueKey === 'receptionist');
-      if (receptionist) {
-        this._handleNPCDialogue(receptionist);
-      } else {
-        this._showDailyMissionsBoard();
-      }
     } else if (tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.STUDY_TABLE) {
       this._handleStudyTableOpen(tile.x, tile.y);
     } else if (tile.tileType === TILES.MEDITATION_MAT) {
@@ -1476,7 +1494,7 @@ export default class WorldScene extends Phaser.Scene {
     const missions = this.dailyMissions.getMissions();
     const today = new Date().toLocaleDateString('es-MX', { weekday: 'long', month: 'long', day: 'numeric' });
 
-    // Build mission lines for dialogue
+    // Build status lines for optional review
     const lines = [`📋 MISIONES DEL DÍA — ${today}`];
     const choices = [];
 
@@ -1543,13 +1561,20 @@ export default class WorldScene extends Phaser.Scene {
     });
 
     choices.push({
+      text: '📜 Ver estado completo',
+      callback: () => {
+        this.dialogueSystem.show('📋 Tablón de Misiones', lines, () => {
+          this.time.delayedCall(200, () => this._showDailyMissionsBoard());
+        });
+      }
+    });
+
+    choices.push({
       text: '❌ Salir',
       callback: () => {}
     });
 
-    this.dialogueSystem.show('📋 Tablón de Misiones', lines, () => {
-      this.dialogueSystem.showChoices('📋 Tablón de Misiones', '¿Qué deseas hacer?', choices);
-    });
+    this.dialogueSystem.showChoices('📋 Tablón de Misiones', `¿Qué deseas hacer? (${today})`, choices);
   }
 
   _handleNPCDialogue(npc) {
@@ -1578,7 +1603,7 @@ export default class WorldScene extends Phaser.Scene {
     else if (npc.npcConfig.dialogueKey === 'receptionist') {
       const choices = [
         {
-          text: 'Ver Tabla de Misiones (Registro)',
+          text: '📋 Abrir Misiones Diarias',
           callback: () => {
             this._showDailyMissionsBoard();
           }
@@ -1595,13 +1620,7 @@ export default class WorldScene extends Phaser.Scene {
         }
       ];
 
-      this.dialogueSystem.show(npc.npcConfig.name, [
-        '¡Hola! Bienvenido a la recepción del Gremio.',
-        'Aquí puedes registrar tus misiones diarias o comprar suministros para entrenar.',
-        '¿En qué te puedo ayudar hoy?'
-      ], () => {
-        this.dialogueSystem.showChoices(npc.npcConfig.name, '¿Qué deseas hacer?', choices);
-      });
+      this.dialogueSystem.showChoices(npc.npcConfig.name, 'Recepción del Gremio: ¿Qué deseas hacer?', choices);
     }
     else if (npc.npcConfig.dialogueKey === 'sage_librarian') {
       const tips = [
