@@ -13,6 +13,8 @@ export default class DialogueSystem {
     this.typeTimer = null;
     this.charIndex = 0;
     this.isTyping = false;
+    this.selectedChoiceIndex = 0;
+    this.choiceButtons = [];
 
     this._createUI();
   }
@@ -112,6 +114,8 @@ export default class DialogueSystem {
     this.nameEl.textContent = npcName;
     this.choicesEl.innerHTML = '';
     this.choicesPanelEl.classList.add('hidden');
+    this.choiceButtons = [];
+    this.selectedChoiceIndex = 0;
     
     this.scene.game.events.emit('dialogue-open');
     this.container.classList.remove('hidden');
@@ -122,6 +126,7 @@ export default class DialogueSystem {
         const btn = document.createElement('div');
         btn.className = 'dialogue-choice';
         btn.textContent = `${i + 1}. ${choice.text}`;
+        btn.onmouseenter = () => this._setSelectedChoice(i);
         
         // Handle click
         btn.onclick = () => {
@@ -130,12 +135,27 @@ export default class DialogueSystem {
         };
         
         this.choicesEl.appendChild(btn);
+        this.choiceButtons.push(btn);
       });
 
       this.choicesPanelEl.classList.remove('hidden');
+      this._setSelectedChoice(0);
+
+      // Directional navigation + confirm (Undertale-like)
+      const keyUp = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
+      const keyDown = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+      const keyW = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+      const keyS = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+      const keyEnter = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+
+      keyUp.on('down', () => this._moveSelection(-1));
+      keyW.on('down', () => this._moveSelection(-1));
+      keyDown.on('down', () => this._moveSelection(1));
+      keyS.on('down', () => this._moveSelection(1));
+      keyEnter.on('down', () => this._activateSelectedChoice());
       
       // Also bind numeric keyboard keys 1..9
-      this.choiceKeys = [];
+      this.choiceKeys = [keyUp, keyDown, keyW, keyS, keyEnter];
       choices.forEach((choice, i) => {
         const keyCodes = [
           Phaser.Input.Keyboard.KeyCodes.ONE,
@@ -152,7 +172,8 @@ export default class DialogueSystem {
         if (!code) return;
 
         const key = this.scene.input.keyboard.addKey(code);
-        key.once('down', () => {
+        key.on('down', () => {
+          if (!this.isActive) return;
           this.hide();
           if (choice.callback) choice.callback();
         });
@@ -166,6 +187,8 @@ export default class DialogueSystem {
     this.container.classList.add('hidden');
     this.choicesPanelEl.classList.add('hidden');
     this.indicatorEl.classList.remove('visible');
+    this.choiceButtons = [];
+    this.selectedChoiceIndex = 0;
     
     if (this.typeTimer) clearInterval(this.typeTimer);
     
@@ -272,5 +295,30 @@ export default class DialogueSystem {
         if (onLineComplete) onLineComplete();
       }
     }, 30); // 30ms per char
+  }
+
+  _setSelectedChoice(index) {
+    if (!this.choiceButtons || this.choiceButtons.length === 0) return;
+
+    const max = this.choiceButtons.length - 1;
+    this.selectedChoiceIndex = Phaser.Math.Clamp(index, 0, max);
+
+    this.choiceButtons.forEach((btn, i) => {
+      if (i === this.selectedChoiceIndex) btn.classList.add('selected');
+      else btn.classList.remove('selected');
+    });
+  }
+
+  _moveSelection(delta) {
+    if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
+    const len = this.choiceButtons.length;
+    const next = (this.selectedChoiceIndex + delta + len) % len;
+    this._setSelectedChoice(next);
+  }
+
+  _activateSelectedChoice() {
+    if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
+    const btn = this.choiceButtons[this.selectedChoiceIndex];
+    if (btn && typeof btn.click === 'function') btn.click();
   }
 }

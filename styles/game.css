@@ -1141,6 +1141,26 @@ body {
   transform: translateX(-3px);
 }
 
+.dialogue-choice.selected {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.9);
+  color: #ffffff;
+  transform: translateX(-3px);
+  position: relative;
+  padding-left: 26px;
+}
+
+.dialogue-choice.selected::before {
+  content: '▶';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--clr-gold);
+  font-size: 11px;
+  text-shadow: 0 0 6px rgba(255, 215, 0, 0.6);
+}
+
 @media (max-width: 900px) {
   .dialogue-choices-panel {
     right: 12px;
