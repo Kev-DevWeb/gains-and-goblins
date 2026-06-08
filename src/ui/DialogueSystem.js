@@ -18,11 +18,6 @@ export default class DialogueSystem {
   }
 
   _createUI() {
-    const boxWidth = GAME_WIDTH - 40;
-    const boxHeight = 120;
-    const boxX = 20;
-    const boxY = GAME_HEIGHT - 130;
-
     // We'll use HTML/CSS overlay for easier text wrapping and formatting,
     // since we already have a robust UI HTML layer.
     
@@ -39,24 +34,39 @@ export default class DialogueSystem {
       this.textEl = document.createElement('div');
       this.textEl.className = 'dialogue-text';
       
+      this.choicesPanelEl = document.createElement('div');
+      this.choicesPanelEl.className = 'dialogue-choices-panel hidden';
+
       this.choicesEl = document.createElement('div');
       this.choicesEl.className = 'dialogue-choices';
+      this.choicesPanelEl.appendChild(this.choicesEl);
       
       this.indicatorEl = document.createElement('div');
       this.indicatorEl.className = 'dialogue-indicator';
       
       this.container.appendChild(this.nameEl);
       this.container.appendChild(this.textEl);
-      this.container.appendChild(this.choicesEl);
       this.container.appendChild(this.indicatorEl);
       
       // Append right after game container
-      document.getElementById('game-container').appendChild(this.container);
+      const gameContainer = document.getElementById('game-container');
+      gameContainer.appendChild(this.container);
+      gameContainer.appendChild(this.choicesPanelEl);
     } else {
       this.nameEl = this.container.querySelector('.dialogue-name');
       this.textEl = this.container.querySelector('.dialogue-text');
-      this.choicesEl = this.container.querySelector('.dialogue-choices');
+      this.choicesPanelEl = document.querySelector('#game-container .dialogue-choices-panel');
+      this.choicesEl = this.choicesPanelEl?.querySelector('.dialogue-choices') || document.createElement('div');
       this.indicatorEl = this.container.querySelector('.dialogue-indicator');
+
+      if (!this.choicesPanelEl) {
+        this.choicesPanelEl = document.createElement('div');
+        this.choicesPanelEl.className = 'dialogue-choices-panel hidden';
+        this.choicesEl = document.createElement('div');
+        this.choicesEl.className = 'dialogue-choices';
+        this.choicesPanelEl.appendChild(this.choicesEl);
+        document.getElementById('game-container').appendChild(this.choicesPanelEl);
+      }
     }
 
     // Input listener to advance dialogue
@@ -80,6 +90,7 @@ export default class DialogueSystem {
     
     this.nameEl.textContent = npcName;
     this.choicesEl.innerHTML = '';
+    this.choicesPanelEl.classList.add('hidden');
     
     this.scene.game.events.emit('dialogue-open');
     this.container.classList.remove('hidden');
@@ -88,7 +99,10 @@ export default class DialogueSystem {
   }
 
   showChoices(npcName, prompt, choices) {
-    if (this.isActive) return;
+    // Force-close any stale dialogue state so choices can always open.
+    if (this.isActive) {
+      this.hide();
+    }
     
     this.isActive = true;
     this.lines = [prompt];
@@ -97,6 +111,7 @@ export default class DialogueSystem {
     
     this.nameEl.textContent = npcName;
     this.choicesEl.innerHTML = '';
+    this.choicesPanelEl.classList.add('hidden');
     
     this.scene.game.events.emit('dialogue-open');
     this.container.classList.remove('hidden');
@@ -116,12 +131,27 @@ export default class DialogueSystem {
         
         this.choicesEl.appendChild(btn);
       });
+
+      this.choicesPanelEl.classList.remove('hidden');
       
-      // Also bind keyboard 1, 2, 3
+      // Also bind numeric keyboard keys 1..9
       this.choiceKeys = [];
       choices.forEach((choice, i) => {
-        const num = i + 1;
-        const key = this.scene.input.keyboard.addKey(num.toString());
+        const keyCodes = [
+          Phaser.Input.Keyboard.KeyCodes.ONE,
+          Phaser.Input.Keyboard.KeyCodes.TWO,
+          Phaser.Input.Keyboard.KeyCodes.THREE,
+          Phaser.Input.Keyboard.KeyCodes.FOUR,
+          Phaser.Input.Keyboard.KeyCodes.FIVE,
+          Phaser.Input.Keyboard.KeyCodes.SIX,
+          Phaser.Input.Keyboard.KeyCodes.SEVEN,
+          Phaser.Input.Keyboard.KeyCodes.EIGHT,
+          Phaser.Input.Keyboard.KeyCodes.NINE,
+        ];
+        const code = keyCodes[i];
+        if (!code) return;
+
+        const key = this.scene.input.keyboard.addKey(code);
         key.once('down', () => {
           this.hide();
           if (choice.callback) choice.callback();
@@ -134,6 +164,7 @@ export default class DialogueSystem {
   hide() {
     this.isActive = false;
     this.container.classList.add('hidden');
+    this.choicesPanelEl.classList.add('hidden');
     this.indicatorEl.classList.remove('visible');
     
     if (this.typeTimer) clearInterval(this.typeTimer);
