@@ -9,13 +9,42 @@ const prisma = new PrismaClient();
 const app = express();
 
 const frontendUrl = process.env.FRONTEND_URL?.trim();
-const corsOptions = frontendUrl
-  ? {
-      origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:5173'],
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    }
-  : undefined;
+
+function isVercelOrigin(origin) {
+  try {
+    return typeof origin === 'string' && origin.endsWith('.vercel.app');
+  } catch (e) { return false; }
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl)
+    if (!origin) return callback(null, true);
+
+    // Allow exact configured frontend URL
+    if (frontendUrl && origin === frontendUrl) return callback(null, true);
+
+    // Allow localhost dev origins
+    if (origin === 'http://localhost:3000' || origin === 'http://localhost:5173') return callback(null, true);
+
+    // Allow any vercel.app subdomain (preview deployments)
+    if (isVercelOrigin(origin)) return callback(null, true);
+
+    // Deny otherwise
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
+
+// Lightweight origin logger to help debug CORS issues in production logs
+app.use((req, res, next) => {
+  if (req.headers && req.headers.origin) {
+    console.log('[CORS] origin=', req.headers.origin, 'path=', req.path);
+  }
+  next();
+});
 
 app.use(cors(corsOptions));
 app.use(express.json());
