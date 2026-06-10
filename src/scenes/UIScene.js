@@ -1,7 +1,7 @@
 // ============================================================================
 // UIScene.js - HUD Overlay for Gains & Goblins
 // ============================================================================
-// Runs as a SEPARATE scene on top of WorldScene.  Renders health/mana/XP bars,
+// Runs as a SEPARATE scene on top of WorldScene.  Renders health/mana bars,
 // level indicator, weapon slots, compact stat panel (toggle with TAB), and a
 // slide-in notification system.  Listens for events from the game registry and
 // scene event bus to stay in sync with gameplay.
@@ -21,7 +21,6 @@ import {
 const PAD         = 10;        // general padding
 const BAR_W       = 160;       // health / mana bar width
 const BAR_H       = 14;        // health / mana bar height
-const XP_BAR_H    = 6;         // XP bar (thinner)
 const SLOT_SIZE   = 40;        // weapon-slot square
 const SLOT_GAP    = 6;         // gap between weapon slots
 const CORNER_R    = 4;         // rounded-rect corner radius
@@ -54,7 +53,6 @@ export default class UIScene extends Phaser.Scene {
     // ── Build UI elements ──
     this._createHealthBar();
     this._createManaBar();
-    this._createXPBar();
     this._createLevelBadge();
     this._createGoldDisplay();
     this._createWeaponSlots();
@@ -598,7 +596,6 @@ export default class UIScene extends Phaser.Scene {
       this._level = level;
       this._lvlText.setText(`${level}`);
     }
-    this._drawXPBar();
   }
 
   setActiveWeapon(weaponKey) {

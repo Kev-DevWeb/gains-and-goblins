@@ -1,32 +1,23 @@
 // ============================================================================
 // DailyMissionSystem.js
 // Generates and tracks 3 daily missions that reset at midnight.
-// Missions types: kill enemies, visit a zone, log a real-life activity.
-// Rewards: gold, bonus branch XP points.
+// Mission type: monster hunting only (no activities/visits).
+// Progress can happen in any combat map except guild.
+// Supports minimum level requirements per mission.
 // ============================================================================
 
 const SAVE_KEY = 'gg_daily_missions';
 
-// Pool of possible daily mission templates
+// Pool of possible daily mission templates (combat-only)
 const MISSION_POOL = [
-  // Kill missions
-  { id: 'kill_slimes_daily',    type: 'kill',     target: 'Slime',     count: 8,  title: 'Caza de Slimes',       desc: 'Elimina 8 Slimes en Deeproot.',        reward: { gold: 60 },                  zone: 'deeproot', icon: '🟢' },
-  { id: 'kill_goblins_daily',   type: 'kill',     target: 'Goblin',    count: 5,  title: 'Patrulla Goblin',      desc: 'Derrota 5 Goblins en Deeproot.',       reward: { gold: 90 },                  zone: 'deeproot', icon: '👺' },
-  { id: 'kill_skeletons_daily', type: 'kill',     target: 'Esqueleto', count: 3,  title: 'Los Muertos Inquietos', desc: 'Destruye 3 Esqueletos en la Arena.',       reward: { gold: 120 },                 zone: 'guild',     icon: '💀' },
-  { id: 'kill_mixed_daily',     type: 'kill',     target: 'Goblin',    count: 3,  title: 'Limpieza Total',       desc: 'Elimina 3 Goblins y 5 Slimes.',            reward: { gold: 100 },                 zone: 'deeproot', icon: '⚔️',  extraKill: { target: 'Slime', count: 5 } },
-  { id: 'kill_boss_daily',      type: 'kill',     target: 'Rey Goblin',     count: 1, title: 'Asesino de Reyes',         desc: 'Derrota al Rey Goblin en la Cueva Goblin.',         reward: { gold: 300, branchBonus: 'strength' }, zone: 'cueva_goblin', icon: '👑' },
-
-  // Visit missions
-  { id: 'visit_dungeon',        type: 'visit',    target: 'cueva_goblin',   count: 1,  title: 'Valiente',             desc: 'Adéntrate en la Cueva Goblin.',                reward: { gold: 40 },                  zone: null,    icon: '🦇' },
-  { id: 'visit_deeproot',       type: 'visit',    target: 'deeproot',  count: 1,  title: 'Explorador',           desc: 'Visita Deeproot hoy.',                     reward: { gold: 25 },                  zone: null,    icon: '🌲' },
-  { id: 'visit_arena',          type: 'visit',    target: 'guild',     count: 1,  title: 'Al Entrenamiento',     desc: 'Derrota un enemigo en la Arena del Gremio.', reward: { gold: 30 },                zone: null,    icon: '🏟️', subType: 'arena_kill' },
-
-  // Real-life activity missions
-  { id: 'activity_strength',    type: 'activity', target: 'strength',     count: 1, title: 'Día de Pesas',        desc: 'Registra un ejercicio de Fuerza hoy.',     reward: { gold: 40, branchBonus: 'strength' },      zone: null, icon: '💪' },
-  { id: 'activity_dexterity',   type: 'activity', target: 'dexterity',    count: 1, title: 'Día de Cardio',       desc: 'Registra una actividad de Destreza hoy.',  reward: { gold: 40, branchBonus: 'dexterity' },     zone: null, icon: '🏃' },
-  { id: 'activity_intelligence', type: 'activity', target: 'intelligence', count: 1, title: 'Día de Estudio',     desc: 'Registra un ejercicio de Inteligencia.',   reward: { gold: 40, branchBonus: 'intelligence' },  zone: null, icon: '📖' },
-  { id: 'activity_willpower',   type: 'activity', target: 'willpower',    count: 1, title: 'Día de Meditación',   desc: 'Registra una actividad de Voluntad.',      reward: { gold: 40, branchBonus: 'willpower' },     zone: null, icon: '🧘' },
-  { id: 'activity_any',         type: 'activity', target: 'any',          count: 2, title: 'Héroe Activo',        desc: 'Registra 2 actividades hoy (cualquiera).',  reward: { gold: 80, branchBonus: 'strength' },     zone: null, icon: '🌟' },
+  { id: 'hunt_slimes_deeproot',  type: 'kill', target: 'Slime',      count: 8, title: 'Caza de Slimes',      desc: 'Elimina 8 Slimes en Deeproot.',                  reward: { gold: 60 },  zone: 'deeproot',    minLevel: 1, icon: '🟢' },
+  { id: 'hunt_goblins_deeproot', type: 'kill', target: 'Goblin',     count: 5, title: 'Patrulla Goblin',     desc: 'Derrota 5 Goblins en Deeproot.',                 reward: { gold: 90 },  zone: 'deeproot',    minLevel: 1, icon: '👺' },
+  { id: 'hunt_archers_any',      type: 'kill', target: 'Goblin Arquero', count: 3, title: 'Rompefilas',      desc: 'Derrota 3 Arqueros Goblin fuera del Gremio.',    reward: { gold: 110 }, zone: null,          minLevel: 1, icon: '🏹' },
+  { id: 'hunt_mages_any',        type: 'kill', target: 'Goblin Mago', count: 3, title: 'Caza de Magos',      desc: 'Derrota 3 Magos Goblin fuera del Gremio.',       reward: { gold: 120 }, zone: null,          minLevel: 2, icon: '✨' },
+  { id: 'hunt_mixed_deeproot',   type: 'kill', target: 'Goblin',     count: 3, title: 'Limpieza Total',      desc: 'Elimina 3 Goblins y 5 Slimes en Deeproot.',      reward: { gold: 120 }, zone: 'deeproot',    minLevel: 1, icon: '⚔️', extraKill: { target: 'Slime', count: 5 } },
+  { id: 'hunt_any_non_guild',    type: 'kill', target: 'any',        count: 10, title: 'Exterminador',       desc: 'Derrota 10 monstruos en cualquier mapa de combate.', reward: { gold: 140 }, zone: null,      minLevel: 1, icon: '🗡️' },
+  { id: 'hunt_cave_goblins',     type: 'kill', target: 'Goblin',     count: 6, title: 'Incursión a la Cueva', desc: 'Derrota 6 Goblins en la Cueva Goblin (Nv. 2+).', reward: { gold: 200 }, zone: 'cueva_goblin', minLevel: 2, icon: '🦇' },
+  { id: 'hunt_goblin_king',      type: 'kill', target: 'Rey Goblin', count: 1, title: 'Asesino de Reyes',    desc: 'Derrota al Rey Goblin en Cueva Goblin (Nv. 2+).', reward: { gold: 300 }, zone: 'cueva_goblin', minLevel: 2, icon: '👑' },
 ];
 
 const DAILY_MISSION_COUNT = 3;
@@ -93,20 +84,15 @@ export default class DailyMissionSystem {
   // ── Tracking ─────────────────────────────────────────────────────────────
 
   /** Call every time an enemy is killed */
-  trackKill(enemyName, mapId) {
+  trackKill(enemyName, mapId, playerLevel = 1) {
+    // Missions never progress inside the guild.
+    if (mapId === 'guild') return;
+
     let any = false;
     for (const m of this.missions) {
       if (!m.accepted || this.claimed[m.id]) continue;
+      if ((m.minLevel || 1) > playerLevel) continue;
       const prog = this.progress[m.id] || 0;
-
-      // Arena-specific kill subtype
-      if (m.subType === 'arena_kill') {
-        if (mapId === 'guild' && prog < m.count) {
-          this.progress[m.id] = prog + 1;
-          any = true;
-        }
-        continue; // Skip normal kill logic for arena_kill subtype
-      }
 
       if (m.type === 'kill') {
         // Enforce zone strictly
@@ -115,7 +101,8 @@ export default class DailyMissionSystem {
         let updated = false;
 
         // Main target check
-        if (m.target === enemyName && prog < m.count) {
+        const matchesMain = m.target === 'any' || m.target === enemyName;
+        if (matchesMain && prog < m.count) {
           this.progress[m.id] = prog + 1;
           updated = true;
         }
@@ -139,40 +126,11 @@ export default class DailyMissionSystem {
     }
   }
 
-  /** Call when player enters a new map */
-  trackVisit(mapId) {
-    let any = false;
-    for (const m of this.missions) {
-      if (!m.accepted || this.claimed[m.id]) continue;
-      if (m.type === 'visit' && m.target === mapId && this.progress[m.id] < m.count) {
-        this.progress[m.id] = 1;
-        any = true;
-      }
-    }
-    if (any) {
-      this._checkCompletions();
-      this._save();
-    }
-  }
+  /** Disabled for combat-only daily mission system */
+  trackVisit(_mapId) {}
 
-  /** Call when player logs a real-life activity */
-  trackActivity(branchKey) {
-    let any = false;
-    for (const m of this.missions) {
-      if (!m.accepted || this.claimed[m.id]) continue;
-      const prog = this.progress[m.id] || 0;
-      if (m.type === 'activity') {
-        if (m.target === 'any' || m.target === branchKey) {
-          this.progress[m.id] = Math.min(prog + 1, m.count);
-          any = true;
-        }
-      }
-    }
-    if (any) {
-      this._checkCompletions();
-      this._save();
-    }
-  }
+  /** Disabled for combat-only daily mission system */
+  trackActivity(_branchKey) {}
 
   _checkCompletions() {
     for (const m of this.missions) {
@@ -205,8 +163,12 @@ export default class DailyMissionSystem {
     return m.reward;
   }
 
-  acceptMission(missionId) {
+  acceptMission(missionId, playerLevel = 1) {
     const m = this.missions.find(x => x.id === missionId);
+    if (m && (m.minLevel || 1) > playerLevel) {
+      this.game.events.emit('show-notification', `Requiere nivel ${m.minLevel}.`, '#e94560');
+      return false;
+    }
     if (m && !m.accepted) {
       m.accepted = true;
       this._save();
