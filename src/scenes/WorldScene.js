@@ -1531,6 +1531,19 @@ export default class WorldScene extends Phaser.Scene {
           SaveSystem.save(this.player.getSaveData());
           // Redraw board
           this.time.delayedCall(500, () => this._showDailyMissionsBoard());
+        },
+        qCallback: () => {
+          const detailLines = [
+            `📜 DETALLES DE LA MISIÓN:`,
+            `✨ Misión: ${m.title}`,
+            `📖 Descripción: ${m.desc}`,
+            `⚔️ Objetivo: Derrotar ${m.count} ${m.target}` + (m.extraKill ? ` y ${m.extraKill.count} ${m.extraKill.target}` : ''),
+            `💰 Recompensa: ${m.reward.gold} oro` + (m.reward.branchBonus ? ` y +1 punto de stat` : ''),
+            `⚠️ Requiere Nivel: ${m.minLevel || 1}`
+          ];
+          this.dialogueSystem.show('📋 Tablón de Misiones', detailLines, () => {
+            this.time.delayedCall(200, () => this._showDailyMissionsBoard());
+          });
         }
       });
     });
@@ -1556,6 +1569,19 @@ export default class WorldScene extends Phaser.Scene {
             SaveSystem.save(this.player.getSaveData());
             this.time.delayedCall(800, () => this._showDailyMissionsBoard());
           }
+        },
+        qCallback: () => {
+          const detailLines = [
+            `📜 DETALLES DE LA MISIÓN:`,
+            `✨ Misión: ${m.title}`,
+            `📖 Descripción: ${m.desc}`,
+            `⚔️ Objetivo: Derrotar ${m.count} ${m.target}` + (m.extraKill ? ` y ${m.extraKill.count} ${m.extraKill.target}` : ''),
+            `💰 Recompensa: ${m.reward.gold} oro` + (m.reward.branchBonus ? ` y +1 punto de stat` : ''),
+            `✅ Estado: ¡Completada! Lista para reclamar.`
+          ];
+          this.dialogueSystem.show('📋 Tablón de Misiones', detailLines, () => {
+            this.time.delayedCall(200, () => this._showDailyMissionsBoard());
+          });
         }
       });
     });
@@ -1603,7 +1629,7 @@ export default class WorldScene extends Phaser.Scene {
     else if (npc.npcConfig.dialogueKey === 'receptionist') {
       const choices = [
         {
-          text: '📋 Abrir Misiones Diarias',
+          text: '📋 Ver Misiones Disponibles',
           callback: () => {
             this._showDailyMissionsBoard();
           }
@@ -1712,6 +1738,20 @@ export default class WorldScene extends Phaser.Scene {
               callback: () => {
                 this.questSystem.startQuest(q.id);
                 this.dialogueSystem.show(npc.npcConfig.name, ['¡Excelente! Ten cuidado ahí fuera.']);
+              },
+              qCallback: () => {
+                const detailLines = [
+                  `📜 DETALLES DE LA MISIÓN:`,
+                  `✨ Misión: ${q.title}`,
+                  `📖 Descripción: ${q.desc}`,
+                  `⚔️ Objetivo: Derrotar ${q.objective.required} ${q.objective.target}`,
+                  `💰 Recompensa: ${q.reward.gold} oro`
+                ];
+                this.dialogueSystem.show(npc.npcConfig.name, detailLines, () => {
+                  this.time.delayedCall(200, () => {
+                    this.dialogueSystem.showChoices(npc.npcConfig.name, '¿Aceptas el encargo?', choices);
+                  });
+                });
               }
             },
             {

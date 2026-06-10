@@ -1044,7 +1044,7 @@ body {
   left: 20px;
   right: 20px;
   bottom: 20px;
-  height: 120px;
+  height: 140px;
   background: rgba(10, 10, 30, 0.92);
   border: 1px solid rgba(255, 215, 0, 0.6);
   border-radius: 8px;
@@ -1067,7 +1067,7 @@ body {
   font-family: var(--font-title);
   font-size: 16px;
   color: var(--clr-gold);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   text-shadow: 0 0 6px rgba(255, 215, 0, 0.3);
 }
 
@@ -1083,7 +1083,7 @@ body {
 .dialogue-indicator {
   position: absolute;
   right: 16px;
-  bottom: 12px;
+  bottom: 38px;
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
@@ -1097,10 +1097,54 @@ body {
   display: block;
 }
 
+.dialogue-footer {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 215, 0, 0.15);
+}
+
+.key-badge {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  color: var(--clr-gold);
+  font-family: var(--font-title);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-shadow: 0 0 4px rgba(255, 215, 0, 0.3);
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.key-badge:hover {
+  background: rgba(255, 215, 0, 0.18);
+  border-color: var(--clr-gold);
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+
+.key-badge.details-badge {
+  margin-left: auto;
+  border-color: rgba(168, 85, 247, 0.5);
+  color: #a855f7;
+}
+
+.key-badge.details-badge:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #a855f7;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+}
+
 .dialogue-choices-panel {
   position: absolute;
   right: 20px;
-  bottom: 152px;
+  bottom: 172px;
   width: min(360px, 42vw);
   max-height: 42vh;
   overflow-y: auto;

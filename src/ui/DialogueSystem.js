@@ -15,8 +15,10 @@ export default class DialogueSystem {
     this.isTyping = false;
     this.selectedChoiceIndex = 0;
     this.choiceButtons = [];
+    this.choices = [];
     this._lineCompleteCallback = null;
     this._audioCtx = null;
+    this._choiceJustConfirmed = false;
 
     this._createUI();
   }
@@ -47,10 +49,14 @@ export default class DialogueSystem {
       
       this.indicatorEl = document.createElement('div');
       this.indicatorEl.className = 'dialogue-indicator';
+
+      this.dialogueFooterEl = document.createElement('div');
+      this.dialogueFooterEl.className = 'dialogue-footer';
       
       this.container.appendChild(this.nameEl);
       this.container.appendChild(this.textEl);
       this.container.appendChild(this.indicatorEl);
+      this.container.appendChild(this.dialogueFooterEl);
       
       // Append right after game container
       const gameContainer = document.getElementById('game-container');
@@ -62,6 +68,12 @@ export default class DialogueSystem {
       this.choicesPanelEl = document.querySelector('#game-container .dialogue-choices-panel');
       this.choicesEl = this.choicesPanelEl?.querySelector('.dialogue-choices') || document.createElement('div');
       this.indicatorEl = this.container.querySelector('.dialogue-indicator');
+      
+      this.dialogueFooterEl = this.container.querySelector('.dialogue-footer') || document.createElement('div');
+      this.dialogueFooterEl.className = 'dialogue-footer';
+      if (!this.dialogueFooterEl.parentNode) {
+        this.container.appendChild(this.dialogueFooterEl);
+      }
 
       if (!this.choicesPanelEl) {
         this.choicesPanelEl = document.createElement('div');
@@ -78,10 +90,69 @@ export default class DialogueSystem {
     this.scene.input.keyboard.on('keydown-E', () => this.advance());
     // Also click
     this.container.addEventListener('click', (e) => {
-      // Don't advance if clicking a choice
-      if (e.target.classList.contains('dialogue-choice')) return;
+      // Don't advance if clicking a choice or a footer badge
+      if (e.target.classList.contains('dialogue-choice') || e.target.classList.contains('key-badge')) return;
       this.advance();
     });
+  }
+
+  _updateFooterText() {
+    if (!this.dialogueFooterEl) return;
+    this.dialogueFooterEl.innerHTML = '';
+    
+    if (this.choicesEl.children.length === 0) {
+      // Normal dialogue mode
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'key-badge';
+      nextBtn.innerHTML = 'ESPACIO / E ➔ Siguiente';
+      nextBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.advance();
+      };
+      this.dialogueFooterEl.appendChild(nextBtn);
+    } else {
+      // Choice selection mode
+      const upBtn = document.createElement('button');
+      upBtn.className = 'key-badge';
+      upBtn.innerHTML = '▲ W / ↑';
+      upBtn.onclick = (e) => {
+        e.stopPropagation();
+        this._moveSelection(-1);
+      };
+      
+      const downBtn = document.createElement('button');
+      downBtn.className = 'key-badge';
+      downBtn.innerHTML = '▼ S / ↓';
+      downBtn.onclick = (e) => {
+        e.stopPropagation();
+        this._moveSelection(1);
+      };
+      
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'key-badge';
+      confirmBtn.innerHTML = 'ESPACIO / ENTER (Confirmar)';
+      confirmBtn.onclick = (e) => {
+        e.stopPropagation();
+        this._activateSelectedChoice();
+      };
+
+      this.dialogueFooterEl.appendChild(upBtn);
+      this.dialogueFooterEl.appendChild(downBtn);
+      this.dialogueFooterEl.appendChild(confirmBtn);
+
+      // Show details button if highlighted choice has qCallback
+      const choice = this.choices ? this.choices[this.selectedChoiceIndex] : null;
+      if (choice && choice.qCallback) {
+        const detailsBtn = document.createElement('button');
+        detailsBtn.className = 'key-badge details-badge';
+        detailsBtn.innerHTML = 'Q (Detalles)';
+        detailsBtn.onclick = (e) => {
+          e.stopPropagation();
+          this._handleQKeyPress();
+        };
+        this.dialogueFooterEl.appendChild(detailsBtn);
+      }
+    }
   }
 
   show(npcName, lines, onComplete = null) {
@@ -91,6 +162,7 @@ export default class DialogueSystem {
     this.lines = lines;
     this.currentLineIndex = 0;
     this.onComplete = onComplete;
+    this.choices = [];
     
     this.nameEl.textContent = npcName;
     this.choicesEl.innerHTML = '';
@@ -118,6 +190,7 @@ export default class DialogueSystem {
     this.choicesPanelEl.classList.add('hidden');
     this.choiceButtons = [];
     this.selectedChoiceIndex = 0;
+    this.choices = choices;
     
     this.scene.game.events.emit('dialogue-open');
     this.container.classList.remove('hidden');
@@ -155,15 +228,24 @@ export default class DialogueSystem {
       const keyW = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
       const keyS = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
       const keyEnter = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+      const keySpace = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      const keyQ = this.scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
 
-      keyUp.on('down', () => this._moveSelection(-1));
-      keyW.on('down', () => this._moveSelection(-1));
-      keyDown.on('down', () => this._moveSelection(1));
-      keyS.on('down', () => this._moveSelection(1));
-      keyEnter.on('down', () => this._activateSelectedChoice());
+      this.choiceKeys = [];
+      this._bindChoiceKey = (key, event, cb) => {
+        key.on(event, cb);
+        this.choiceKeys.push({ key, event, callback: cb });
+      };
+
+      this._bindChoiceKey(keyUp, 'down', () => this._moveSelection(-1));
+      this._bindChoiceKey(keyW, 'down', () => this._moveSelection(-1));
+      this._bindChoiceKey(keyDown, 'down', () => this._moveSelection(1));
+      this._bindChoiceKey(keyS, 'down', () => this._moveSelection(1));
+      this._bindChoiceKey(keyEnter, 'down', () => this._activateSelectedChoice());
+      this._bindChoiceKey(keySpace, 'down', () => this._activateSelectedChoice());
+      this._bindChoiceKey(keyQ, 'down', () => this._handleQKeyPress());
       
       // Also bind numeric keyboard keys 1..9
-      this.choiceKeys = [keyUp, keyDown, keyW, keyS, keyEnter];
       choices.forEach((choice, i) => {
         const keyCodes = [
           Phaser.Input.Keyboard.KeyCodes.ONE,
@@ -180,13 +262,13 @@ export default class DialogueSystem {
         if (!code) return;
 
         const key = this.scene.input.keyboard.addKey(code);
-        key.on('down', () => {
+        const cb = () => {
           if (!this.isActive) return;
           this._playUiBeep('confirm');
           this.hide();
           if (choice.callback) choice.callback();
-        });
-        this.choiceKeys.push(key);
+        };
+        this._bindChoiceKey(key, 'down', cb);
       });
     });
   }
@@ -198,12 +280,15 @@ export default class DialogueSystem {
     this.indicatorEl.classList.remove('visible');
     this.choiceButtons = [];
     this.selectedChoiceIndex = 0;
+    this.choices = [];
     
     if (this.typeTimer) clearInterval(this.typeTimer);
     
     // Cleanup choice keys
     if (this.choiceKeys) {
-      this.choiceKeys.forEach(k => k.destroy());
+      this.choiceKeys.forEach(({ key, event, callback }) => {
+        key.off(event, callback);
+      });
       this.choiceKeys = null;
     }
     
@@ -214,6 +299,10 @@ export default class DialogueSystem {
     if (!this.isActive) return;
     // Don't advance if we are showing choices
     if (this.choicesEl.children.length > 0) return;
+    if (this._choiceJustConfirmed) {
+      this._choiceJustConfirmed = false;
+      return;
+    }
 
     // Dopamine-chasing check: skip dialogues too fast
     const now = this.scene.time.now;
@@ -297,6 +386,8 @@ export default class DialogueSystem {
     this.charIndex = 0;
     this.isTyping = true;
     
+    this._updateFooterText();
+    
     this.typeTimer = setInterval(() => {
       if (!this.isActive) {
         clearInterval(this.typeTimer);
@@ -328,6 +419,8 @@ export default class DialogueSystem {
       if (i === this.selectedChoiceIndex) btn.classList.add('selected');
       else btn.classList.remove('selected');
     });
+
+    this._updateFooterText();
   }
 
   _moveSelection(delta) {
@@ -338,11 +431,27 @@ export default class DialogueSystem {
     this._setSelectedChoice(next);
   }
 
+  _handleQKeyPress() {
+    if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
+    const choice = this.choices[this.selectedChoiceIndex];
+    if (choice && choice.qCallback) {
+      this._playUiBeep('confirm');
+      this.hide();
+      choice.qCallback();
+    }
+  }
+
   _activateSelectedChoice() {
     if (!this.isActive || !this.choiceButtons || this.choiceButtons.length === 0) return;
     this._playUiBeep('confirm');
     const btn = this.choiceButtons[this.selectedChoiceIndex];
-    if (btn && typeof btn.click === 'function') btn.click();
+    if (btn && typeof btn.click === 'function') {
+      this._choiceJustConfirmed = true;
+      this.scene.time.delayedCall(50, () => {
+        this._choiceJustConfirmed = false;
+      });
+      btn.click();
+    }
   }
 
   _playUiBeep(kind = 'move') {
@@ -387,3 +496,4 @@ export default class DialogueSystem {
     }
   }
 }
+
