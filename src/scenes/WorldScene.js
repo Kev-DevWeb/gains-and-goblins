@@ -9,6 +9,7 @@ import DailyMissionSystem from '../utils/DailyMissionSystem.js';
 import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns } from '../utils/MapGenerator.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
+import { io } from 'socket.io-client';
 
 export default class WorldScene extends Phaser.Scene {
   constructor() {
@@ -202,28 +203,39 @@ export default class WorldScene extends Phaser.Scene {
       M: Phaser.Input.Keyboard.KeyCodes.M,
     });
 
-    // Weapon switching
+     // Weapon switching
     this.cursors.ONE.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.SWORD.key);
+      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.SWORD.key });
     });
     this.cursors.TWO.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.BOW.key);
+      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.BOW.key });
     });
     this.cursors.THREE.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.MAGIC.key);
+      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.MAGIC.key });
     });
 
-    // Spells (Q, F and Ultimate R)
+    // Spells (Q to switch active spell, F to cast active spell)
     this.cursors.Q.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.castSpell('shield');
+      this.player.switchSpell();
     });
     this.cursors.F.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.castSpell('ghost_swords');
+      const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
+      if (activeSpell && activeSpell !== '-') {
+        this.player.castSpell(activeSpell);
+      } else {
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene && uiScene.showNotification) {
+          uiScene.showNotification('Ningún hechizo equipado', '#e94560');
+        }
+      }
     });
     this.cursors.R.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
@@ -234,6 +246,7 @@ export default class WorldScene extends Phaser.Scene {
     this.cursors.SHIFT.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.dodgeRoll();
+      if (this.socket && this.socket.connected) this.socket.emit('player-rolled');
     });
 
     // Interact action (E key)
@@ -268,6 +281,12 @@ export default class WorldScene extends Phaser.Scene {
     this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
     this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
 
+    // Hero Panel events
+    this.game.events.off('spend-branch-point');
+    this.game.events.off('equip-accessory');
+    this.game.events.off('unequip-accessory');
+    this.game.events.off('equip-spell');
+
     this.events.on('player-attack', this.handleAttack, this);
     this.events.on('player-spell', this.handleSpellcast, this);
     this.events.on('player-parry', this.handleParry, this);
@@ -277,6 +296,29 @@ export default class WorldScene extends Phaser.Scene {
     this.game.events.on('player-respawned', this._onPlayerRespawned, this);
     this.game.events.on('quick-use-hp', this._onQuickUseHp, this);
     this.game.events.on('quick-use-mp', this._onQuickUseMp, this);
+
+    // Bind Hero Panel events
+    this.game.events.on('spend-branch-point', (branchKey, statKey) => {
+      this.player.spendBranchPoint(branchKey, statKey);
+      SaveSystem.save(this.player.getSaveData());
+    });
+    this.game.events.on('equip-accessory', (item) => {
+      this.player.equipAccessory(item);
+      SaveSystem.save(this.player.getSaveData());
+    });
+    this.game.events.on('unequip-accessory', (item) => {
+      this.player.unequipAccessory(item);
+      SaveSystem.save(this.player.getSaveData());
+    });
+    this.game.events.on('equip-spell', (slotIndex, spellKey) => {
+      if (this.player.spells.includes(spellKey)) {
+        this.player.equippedSpells[slotIndex] = spellKey;
+        this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
+        const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
+        this.game.events.emit('active-spell-changed', activeSpell);
+        SaveSystem.save(this.player.getSaveData());
+      }
+    });
 
     // ── Initial UI sync ──
     this.time.delayedCall(100, () => {
@@ -289,6 +331,10 @@ export default class WorldScene extends Phaser.Scene {
       this.game.events.emit('update-affinity', this.player.dominantBranch, this.player.affinityData?.counts || {});
       this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
       this.game.events.emit('update-vitality', this.player.vitality);
+      this.game.events.emit('update-equipped-accessories', this.player.equippedAccessories);
+      this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
+      const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
+      this.game.events.emit('active-spell-changed', activeSpell);
       this._syncQuestsUI();
 
       // Notify player of any unspent points from previous session
@@ -345,6 +391,12 @@ export default class WorldScene extends Phaser.Scene {
           this.player.branchPoints.vitality = 100;
         }
 
+        // Unpack from branchPoints Json
+        this.player.equippedAccessories = this.player.branchPoints.equippedAccessories || [];
+        this.player.spells = this.player.branchPoints.spells || ['shield', 'ghost_swords', 'heal'];
+        this.player.equippedSpells = this.player.branchPoints.equippedSpells || ['shield', 'ghost_swords'];
+        this.player.activeSpellIndex = this.player.branchPoints.activeSpellIndex || 0;
+
         // Recalculate max HP and Mana
         this.player.maxHp = character.resistance * 10;
         this.player.maxMana = character.maxMana;
@@ -358,6 +410,10 @@ export default class WorldScene extends Phaser.Scene {
         this.game.events.emit('update-inventory', this.player.inventory);
         this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
         this.game.events.emit('update-vitality', this.player.vitality);
+        this.game.events.emit('update-equipped-accessories', this.player.equippedAccessories);
+        this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
+        const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
+        this.game.events.emit('active-spell-changed', activeSpell);
         this._syncQuestsUI();
 
         // Show notifications if applicable
@@ -374,6 +430,111 @@ export default class WorldScene extends Phaser.Scene {
     };
     window.addEventListener('character-synced', this._characterSyncedListener);
 
+    // ── Socket.IO Connection ──
+    this.otherPlayers = this.add.group();
+    const userId = SaveSystem.getUserId();
+    const characterName = this.player.name || this.player.stats?.name || 'Héroe';
+    const backendUrl = SaveSystem.getUserId() ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
+    if (backendUrl) {
+      this.socket = io(backendUrl);
+
+      this.socket.on('connect', () => {
+        this.socket.emit('join-game', {
+          userId,
+          characterName,
+          mapId: this.mapId,
+          x: this.player.x,
+          y: this.player.y
+        });
+      });
+
+      this.socket.on('current-players', (players) => {
+        players.forEach(p => this._addOtherPlayer(p));
+      });
+
+      this.socket.on('player-joined', (player) => {
+        this._addOtherPlayer(player);
+      });
+
+      this.socket.on('player-moved', (movementData) => {
+        this._moveOtherPlayer(movementData);
+      });
+
+      this.socket.on('player-switched-weapon', (data) => {
+        this._changeOtherPlayerWeapon(data);
+      });
+
+      this.socket.on('player-attacked', (data) => {
+        this.drawRemoteAttack(data.socketId, data.attackData);
+      });
+
+      this.socket.on('player-cast-spell', (data) => {
+        this.drawRemoteSpell(data.socketId, data.spellKey, data.origin);
+      });
+
+      this.socket.on('player-rolled', (data) => {
+        const other = this.otherPlayers.getChildren().find(p => p.socketId === data.socketId);
+        if (other) {
+          this.tweens.add({
+            targets: other,
+            angle: 360,
+            duration: 350,
+            onComplete: () => { if (other.active) other.setAngle(0); }
+          });
+        }
+      });
+
+      this.socket.on('player-left', ({ socketId }) => {
+        this._removeOtherPlayer(socketId);
+      });
+
+      this.socket.on('party-updated', (party) => {
+        this.game.events.emit('party-updated', party);
+      });
+
+      this.socket.on('party-left', () => {
+        this.game.events.emit('party-left');
+      });
+
+      this.socket.on('party-error', (msg) => {
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene && uiScene.showNotification) {
+          uiScene.showNotification(msg, '#e94560');
+        }
+      });
+
+      this.socket.on('party-enemy-killed', ({ enemyName, killerName }) => {
+        this.questSystem.trackKill(enemyName);
+        this.dailyMissions.trackKill(enemyName, this.mapId);
+        this._syncQuestsUI();
+
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene && uiScene.showNotification) {
+          uiScene.showNotification(`⚔️ ${killerName} derrotó a ${enemyName} (Misión +1)`, '#2ecc71');
+        }
+      });
+
+      this._onPartyCreate = (partyName) => {
+        if (this.socket && this.socket.connected) {
+          this.socket.emit('create-party', { partyName });
+        }
+      };
+      this._onPartyJoin = (partyName) => {
+        if (this.socket && this.socket.connected) {
+          this.socket.emit('join-party', { partyName });
+        }
+      };
+      this._onPartyLeave = () => {
+        if (this.socket && this.socket.connected) {
+          this.socket.emit('leave-party');
+        }
+      };
+
+      this.game.events.on('party-create', this._onPartyCreate);
+      this.game.events.on('party-join', this._onPartyJoin);
+      this.game.events.on('party-leave', this._onPartyLeave);
+    }
+
     // Clean up event listener when scene shuts down
     this.events.once('shutdown', () => {
       window.removeEventListener('character-synced', this._characterSyncedListener);
@@ -386,29 +547,47 @@ export default class WorldScene extends Phaser.Scene {
       this.game.events.off('player-respawned', this._onPlayerRespawned, this);
       this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
       this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
+      this.game.events.off('spend-branch-point');
+      this.game.events.off('equip-accessory');
+      this.game.events.off('unequip-accessory');
+      this.game.events.off('equip-spell');
+      if (this._onPartyCreate) this.game.events.off('party-create', this._onPartyCreate);
+      if (this._onPartyJoin) this.game.events.off('party-join', this._onPartyJoin);
+      if (this._onPartyLeave) this.game.events.off('party-leave', this._onPartyLeave);
+      if (this.socket) {
+        this.socket.disconnect();
+      }
     });
   }
 
-  _onEnemyDied(enemy) {
-    let goldDrop = Phaser.Math.Between(1, 3);
-
-    if (enemy.typeConfig.isBoss) {
-      goldDrop = 150;
-      this.cameras.main.flash(800, 255, 215, 0);
-      this.cameras.main.shake(1000, 0.02);
+  async _onEnemyDied(enemy) {
+    const uiScene = this.scene.get(SCENES.UI);
+    
+    // Call server-authoritative endpoint
+    const data = await SaveSystem.enemyKilled(enemy.typeConfig.name);
+    if (data) {
+      this.player.gold = data.character.gold;
+      this.player.inventory = data.character.inventory;
+      this.game.events.emit('update-gold', this.player.gold);
+      this.game.events.emit('update-inventory', this.player.inventory);
+      
+      const goldDrop = data.goldDrop;
+      if (uiScene && uiScene.showNotification) {
+        uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
+        if (data.droppedItem) {
+          uiScene.showNotification(`+1 ${data.droppedItem.name}`, '#2ecc71');
+        }
+      }
     }
 
-    this.player.addGold(goldDrop);
-
-    const uiScene = this.scene.get(SCENES.UI);
-    if (uiScene && uiScene.showNotification) {
-      uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
+    if (enemy.typeConfig.isBoss) {
+      this.cameras.main.flash(800, 255, 215, 0);
+      this.cameras.main.shake(1000, 0.02);
     }
 
     this.questSystem.trackKill(enemy.typeConfig.name);
     this.dailyMissions.trackKill(enemy.typeConfig.name, this.mapId);
     this._syncQuestsUI();
-    SaveSystem.save(this.player.getSaveData());
   }
 
   _onActivityLogged(activityId) {
@@ -595,6 +774,30 @@ export default class WorldScene extends Phaser.Scene {
     // Draw combat visual helpers
     this._drawComboIndicator();
     this._drawTrajectoryLine();
+
+    // Sincronizar posición por sockets (~15 Hz)
+    const now = this.time.now;
+    if (!this._lastSocketPosSentAt || now - this._lastSocketPosSentAt > 66) {
+      const currentAnim = this.player.anims.currentAnim ? this.player.anims.currentAnim.key : 'idle';
+      const hasMoved = this.player.x !== this._lastSentX ||
+                       this.player.y !== this._lastSentY ||
+                       this.player.facing !== this._lastSentFacing ||
+                       currentAnim !== this._lastSentAnim;
+      
+      if (hasMoved && this.socket && this.socket.connected) {
+        this.socket.emit('player-moved', {
+          x: this.player.x,
+          y: this.player.y,
+          facing: this.player.facing,
+          anim: currentAnim
+        });
+        this._lastSentX = this.player.x;
+        this._lastSentY = this.player.y;
+        this._lastSentFacing = this.player.facing;
+        this._lastSentAnim = currentAnim;
+        this._lastSocketPosSentAt = now;
+      }
+    }
   }
 
   // ========================================================================
@@ -611,6 +814,16 @@ export default class WorldScene extends Phaser.Scene {
     }
     this._lastAttackSignature = attackSig;
     this._lastAttackHandledAt = now;
+
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('player-attacked', {
+        weapon: { key: weapon.key },
+        dir,
+        origin,
+        chargeTime,
+        comboStep
+      });
+    }
 
     const isCharged = chargeTime > 800; // 0.8s charge
 
@@ -900,6 +1113,10 @@ export default class WorldScene extends Phaser.Scene {
     const { spell, origin } = data;
     const uiScene = this.scene.get(SCENES.UI);
 
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('player-cast-spell', spell);
+    }
+
     if (spell === 'shield') {
       if (this.player.hasPhysicalShield) {
         // Toggle off
@@ -963,6 +1180,38 @@ export default class WorldScene extends Phaser.Scene {
         }
       } else {
         if (uiScene && uiScene.showNotification) uiScene.showNotification('Sin maná para Espadas', '#e94560');
+      }
+    } else if (spell === 'heal') {
+      const cost = this.player.isUltimateActive ? 0 : 15;
+      if (this.player.mana >= cost) {
+        if (cost > 0) {
+          this.player.mana -= cost;
+          this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+        }
+        
+        // Heal 25 HP
+        this.player.hp = Math.min(this.player.hp + 25, this.player.maxHp);
+        this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
+        
+        if (uiScene && uiScene.showNotification) uiScene.showNotification('¡Curación! +25 HP', '#2ecc71');
+        
+        // Play green sparkles
+        const particles = this.add.particles(0, 0, 'particle_gold', {
+          speed: { min: -40, max: 40 },
+          angle: { min: 0, max: 360 },
+          scale: { start: 1, end: 0 },
+          lifespan: 800,
+          quantity: 15,
+          tint: 0x2ecc71
+        });
+        particles.explode(15, this.player.x, this.player.y);
+        this.time.delayedCall(1200, () => {
+          if (particles && particles.active) particles.destroy();
+        });
+        
+        SaveSystem.save(this.player.getSaveData());
+      } else {
+        if (uiScene && uiScene.showNotification) uiScene.showNotification('Sin maná para Curación', '#e94560');
       }
     }
   }
@@ -1041,52 +1290,56 @@ export default class WorldScene extends Phaser.Scene {
    * Grants gold (guild: 50-100, deeproot: 40-80, cueva_goblin: 80-150)
    * and starts 20-minute respawn cooldown stored in localStorage.
    */
-  _handleChestOpen(tileX, tileY) {
-    const goldAmount = 20;
-
-    this.player.addGold(goldAmount);
-
+  async _handleChestOpen(tileX, tileY) {
     const uiScene = this.scene.get(SCENES.UI);
-    if (uiScene && uiScene.showNotification) {
-      uiScene.showNotification(`✨ ¡Cofre! +${goldAmount} Oro`, '#ffd700');
-    }
 
-    // Replace chest tile with appropriate floor
-    const floorTile = this.mapId === 'cueva_goblin' ? TILES.DUNGEON_FLOOR
-                    : this.mapId === 'deeproot'      ? TILES.GRASS
-                    : TILES.GUILD_FLOOR;
-    this._mapData[tileY][tileX] = floorTile;
-    this.mapLayer.putTileAt(floorTile, tileX, tileY);
+    const data = await SaveSystem.openChest(this.mapId, tileX, tileY);
+    if (data) {
+      const goldAmount = data.goldDrop;
+      this.player.gold = data.character.gold;
+      this.game.events.emit('update-gold', this.player.gold);
 
-    // Start 20-minute cooldown
-    const COOLDOWN_MS = 20 * 60 * 1000; // 20 minutes
-    const cooldownUntil = Date.now() + COOLDOWN_MS;
-    const key = this._chestCooldownKey(this.mapId, tileX, tileY);
-    localStorage.setItem(key, String(cooldownUntil));
-
-    // Schedule visual re-spawn if the player stays in the map that long
-    this.time.delayedCall(COOLDOWN_MS, () => {
-      if (!this.scene.isActive(SCENES.WORLD)) return;
-      if (this._mapData[tileY][tileX] !== floorTile && this._mapData[tileY][tileX] !== TILES.CHEST) return;
-      // Remove cooldown key so a page reload ALSO shows the chest
-      localStorage.removeItem(key);
-      this._mapData[tileY][tileX] = TILES.CHEST;
-      this.mapLayer.putTileAt(TILES.CHEST, tileX, tileY);
       if (uiScene && uiScene.showNotification) {
-        uiScene.showNotification('📦 ¡Un cofre ha reaparecido cerca!', '#c4a35a');
+        uiScene.showNotification(`✨ ¡Cofre! +${goldAmount} Oro`, '#ffd700');
       }
-    });
 
-    // Gold sparkle effect
-    const particles = this.add.particles(0, 0, 'particle_gold', {
-      speed: { min: 20, max: 60 },
-      scale: { start: 1, end: 0 },
-      lifespan: 600,
-      quantity: 12
-    });
-    particles.explode(12, tileX * TILE_SIZE + 8, tileY * TILE_SIZE + 8);
+      // Replace chest tile with appropriate floor
+      const floorTile = this.mapId === 'cueva_goblin' ? TILES.DUNGEON_FLOOR
+                      : this.mapId === 'deeproot'      ? TILES.GRASS
+                      : TILES.GUILD_FLOOR;
+      this._mapData[tileY][tileX] = floorTile;
+      this.mapLayer.putTileAt(floorTile, tileX, tileY);
 
-    SaveSystem.save(this.player.getSaveData());
+      // Start cooldown based on server timestamp
+      const COOLDOWN_MS = Math.max(0, data.cooldownUntil - Date.now());
+      const key = this._chestCooldownKey(this.mapId, tileX, tileY);
+      localStorage.setItem(key, String(data.cooldownUntil));
+
+      // Schedule visual re-spawn
+      this.time.delayedCall(COOLDOWN_MS, () => {
+        if (!this.scene.isActive(SCENES.WORLD)) return;
+        if (this._mapData[tileY][tileX] !== floorTile && this._mapData[tileY][tileX] !== TILES.CHEST) return;
+        localStorage.removeItem(key);
+        this._mapData[tileY][tileX] = TILES.CHEST;
+        this.mapLayer.putTileAt(TILES.CHEST, tileX, tileY);
+        if (uiScene && uiScene.showNotification) {
+          uiScene.showNotification('📦 ¡Un cofre ha reaparecido cerca!', '#c4a35a');
+        }
+      });
+
+      // Gold sparkle effect
+      const particles = this.add.particles(0, 0, 'particle_gold', {
+        speed: { min: 20, max: 60 },
+        scale: { start: 1, end: 0 },
+        lifespan: 600,
+        quantity: 12
+      });
+      particles.explode(12, tileX * TILE_SIZE + 8, tileY * TILE_SIZE + 8);
+    } else {
+      if (uiScene && uiScene.showNotification) {
+        uiScene.showNotification('El cofre no se pudo abrir (cooldown o error)', '#e94560');
+      }
+    }
   }
 
   // ========================================================================
@@ -1793,6 +2046,219 @@ export default class WorldScene extends Phaser.Scene {
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.restart({ mapId: targetMapId, spawnId: targetSpawnId });
     });
+  }
+
+  // ========================================================================
+  //  MULTIPLE JUGADORES (Socket.IO Helpers)
+  // ========================================================================
+  _addOtherPlayer(playerInfo) {
+    if (!playerInfo || !playerInfo.socketId) return;
+    let exists = false;
+    this.otherPlayers.getChildren().forEach(other => {
+      if (other.socketId === playerInfo.socketId) exists = true;
+    });
+    if (exists) return;
+
+    const other = this.add.sprite(playerInfo.x, playerInfo.y, 'player', 0);
+    other.setDepth(10);
+    other.socketId = playerInfo.socketId;
+
+    other.shadow = this.add.ellipse(playerInfo.x, playerInfo.y + 10, 12, 6, 0x000000, 0.4);
+    other.shadow.setDepth(9);
+
+    other.nameTag = this.add.text(playerInfo.x, playerInfo.y - 12, playerInfo.characterName, {
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '7px',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 2
+    }).setOrigin(0.5);
+    other.nameTag.setDepth(20);
+
+    this.otherPlayers.add(other);
+  }
+
+  _removeOtherPlayer(socketId) {
+    this.otherPlayers.getChildren().forEach(other => {
+      if (other.socketId === socketId) {
+        if (other.shadow) other.shadow.destroy();
+        if (other.nameTag) other.nameTag.destroy();
+        other.destroy();
+      }
+    });
+  }
+
+  _moveOtherPlayer(playerInfo) {
+    this.otherPlayers.getChildren().forEach(other => {
+      if (other.socketId === playerInfo.socketId) {
+        other.x = playerInfo.x;
+        other.y = playerInfo.y;
+        
+        if (other.shadow) {
+          other.shadow.x = other.x;
+          other.shadow.y = other.y + 10;
+        }
+        if (other.nameTag) {
+          other.nameTag.x = other.x;
+          other.nameTag.y = other.y - 12;
+        }
+
+        if (playerInfo.anim && playerInfo.anim !== 'idle') {
+          other.anims.play(playerInfo.anim, true);
+        } else {
+          other.anims.stop();
+          switch (playerInfo.facing) {
+            case 'down': other.setFrame(0); break;
+            case 'left': other.setFrame(3); break;
+            case 'right': other.setFrame(6); break;
+            case 'up': other.setFrame(9); break;
+          }
+        }
+      }
+    });
+  }
+
+  _changeOtherPlayerWeapon(data) {
+    this.otherPlayers.getChildren().forEach(other => {
+      if (other.socketId === data.socketId) {
+        other.weaponKey = data.weaponKey;
+      }
+    });
+  }
+
+  drawRemoteAttack(socketId, attackData) {
+    const { weapon, dir, origin, chargeTime, comboStep } = attackData;
+    const isCharged = chargeTime > 800;
+
+    if (weapon.key === WEAPONS.SWORD.key) {
+      let spriteKey = 'slash_effect';
+      let scale = 1.3;
+      const step = comboStep || 0;
+      if (step === 1) {
+        scale = 1.6;
+      } else if (step === 2) {
+        spriteKey = 'slash_flourish';
+        scale = 2.0;
+      }
+      if (isCharged) {
+        spriteKey = 'slash_flourish';
+        scale = 2.2;
+      }
+
+      const slash = this.add.sprite(origin.x + dir.x * 16, origin.y + dir.y * 16, spriteKey);
+      slash.setDepth(15);
+
+      if (dir.x === 1) slash.setAngle(0);
+      else if (dir.x === -1) slash.setAngle(180);
+      else if (dir.y === 1) slash.setAngle(90);
+      else if (dir.y === -1) slash.setAngle(-90);
+
+      this.tweens.add({
+        targets: slash,
+        alpha: 0,
+        scale: scale,
+        duration: isCharged ? 250 : 150,
+        onComplete: () => slash.destroy()
+      });
+    } else if (weapon.key === WEAPONS.BOW.key) {
+      const arrow = this.add.sprite(origin.x, origin.y, 'arrow');
+      arrow.setDepth(12);
+      
+      const angle = Math.atan2(dir.y, dir.x);
+      arrow.setRotation(angle);
+
+      this.physics.add.existing(arrow);
+      arrow.body.setVelocity(dir.x * 250, dir.y * 250);
+      this.time.delayedCall(1500, () => {
+        if (arrow && arrow.active) arrow.destroy();
+      });
+    } else if (weapon.key === WEAPONS.MAGIC.key) {
+      const orb = this.physics.add.sprite(origin.x, origin.y, 'magic_orb');
+      orb.setDepth(12);
+      orb.setVelocity(dir.x * 150, dir.y * 150);
+
+      const particles = this.add.particles(0, 0, 'particle_purple', {
+        speed: 10,
+        scale: { start: 1, end: 0 },
+        blendMode: 'ADD',
+        lifespan: 300
+      });
+      particles.startFollow(orb);
+
+      this.time.delayedCall(1500, () => {
+        if (orb.active) {
+          orb.destroy();
+          particles.destroy();
+        }
+      });
+    }
+  }
+
+  drawRemoteSpell(socketId, spellKey, origin) {
+    const other = this.otherPlayers.getChildren().find(p => p.socketId === socketId);
+    if (!other) return;
+
+    if (spellKey === 'shield') {
+      const shield = this.add.sprite(other.x, other.y, 'shield_bubble');
+      shield.setDepth(20);
+      const timer = this.time.addEvent({
+        delay: 50,
+        callback: () => {
+          if (other.active && shield.active) {
+            shield.x = other.x;
+            shield.y = other.y;
+          } else {
+            shield.destroy();
+            timer.remove();
+          }
+        },
+        loop: true
+      });
+      this.time.delayedCall(4000, () => {
+        timer.remove();
+        if (shield.active) shield.destroy();
+      });
+    } else if (spellKey === 'ghost_swords') {
+      for (let i = 0; i < 3; i++) {
+        const sword = this.add.sprite(other.x, other.y, 'ghost_sword');
+        sword.setDepth(15);
+        let orbitOffset = (Math.PI * 2 / 3) * i;
+        
+        const timer = this.time.addEvent({
+          delay: 16,
+          callback: () => {
+            if (other.active && sword.active) {
+              const time = this.time.now * 0.003;
+              sword.x = other.x + Math.cos(time + orbitOffset) * 20;
+              sword.y = other.y + Math.sin(time + orbitOffset) * 20;
+              sword.setRotation(time + orbitOffset + Math.PI / 2);
+            } else {
+              sword.destroy();
+              timer.remove();
+            }
+          },
+          loop: true
+        });
+
+        this.time.delayedCall(8000, () => {
+          timer.remove();
+          if (sword.active) sword.destroy();
+        });
+      }
+    } else if (spellKey === 'heal') {
+      const particles = this.add.particles(0, 0, 'particle_gold', {
+        speed: { min: -40, max: 40 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 1, end: 0 },
+        lifespan: 800,
+        quantity: 15,
+        tint: 0x2ecc71
+      });
+      particles.explode(15, other.x, other.y);
+      this.time.delayedCall(1200, () => {
+        if (particles && particles.active) particles.destroy();
+      });
+    }
   }
 
   // ========================================================================

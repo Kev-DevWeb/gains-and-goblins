@@ -53,6 +53,12 @@ model Character {
   // Backups of previous stats for recovery period
   recoveryBackup    Json?              // backup of stats and level when entering recovery
   
+  // Google Health / Fitbit Integration
+  fitbitUserId       String?
+  fitbitAccessToken  String?
+  fitbitRefreshToken String?
+  fitbitExpiresAt    DateTime?
+
   activities        Activity[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt

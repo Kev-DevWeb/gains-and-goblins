@@ -17,6 +17,7 @@
 
     <!-- Panel de Botones HUD Inferiores/Laterales -->
     <div id="hud-controls">
+      <button class="hud-btn" id="btn-hero" title="Héroe (Y)">👑 Héroe</button>
       <button class="hud-btn" id="btn-stats" title="Estadísticas (TAB)">📊 Stats</button>
       <button class="hud-btn" id="btn-inventory" title="Inventario (I)">🎒 Inventario</button>
       <button class="hud-btn" id="btn-quests" title="Misiones (J)">📜 Misiones</button>
@@ -38,6 +39,114 @@
         <h3 class="gold-text medieval-text" style="font-size: 0.9rem; border-bottom: 1px solid rgba(255, 215, 0, 0.3); padding-bottom: 4px; margin-bottom: 8px;">Principales Activas</h3>
         <div id="main-quests-list" style="display: flex; flex-direction: column; gap: 8px;">
           <!-- Active main quests will be injected here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel de Héroe -->
+    <div id="hero-panel" class="hud-panel glass-panel hidden" style="width: min(550px, 90vw); max-height: 85vh; overflow-y: auto;">
+      <div class="panel-header">
+        <h2 class="medieval-text gold-text">👑 Hoja de Héroe</h2>
+        <button class="close-btn" data-target="hero-panel">&times;</button>
+      </div>
+
+      <!-- Navigation Tabs inside Hero Panel -->
+      <div class="hero-tabs" style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--ui-border); padding-bottom: 8px;">
+        <button class="hero-tab active" data-tab="hero-stats" style="flex: 1; padding: 6px; font-family: var(--font-title); background: rgba(255,255,255,0.05); color: var(--clr-gold); border: 1px solid var(--ui-border); cursor: pointer; border-radius: 4px;">📊 Atributos</button>
+        <button class="hero-tab" data-tab="hero-inventory" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">🎒 Inventario</button>
+        <button class="hero-tab" data-tab="hero-spells" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">✨ Hechizos</button>
+        <button class="hero-tab" data-tab="hero-party" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">👥 Grupo</button>
+      </div>
+
+      <!-- Tab 1: Stats & Point Allocation -->
+      <div id="tab-hero-stats" class="hero-tab-content">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 0.9rem;">
+          <div><b>Nivel:</b> <span id="hero-level-val">1</span></div>
+          <div><b>XP:</b> <span id="hero-xp-val">0</span> / <span id="hero-xp-max-val">50</span></div>
+        </div>
+        <div id="hero-branches-container" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Branches with unspent points and stats will be loaded here -->
+        </div>
+      </div>
+
+      <!-- Tab 2: Classified Inventory & Accessories -->
+      <div id="tab-hero-inventory" class="hero-tab-content hidden">
+        <!-- Classification Filters -->
+        <div style="display: flex; gap: 4px; margin-bottom: 10px; font-size: 0.75rem;">
+          <button class="inv-filter active" data-filter="all" style="flex: 1; padding: 4px; border-radius: 3px; border: 1px solid rgba(255,215,0,0.3); background: rgba(255,215,0,0.1); color: #fff; cursor: pointer;">Todos</button>
+          <button class="inv-filter" data-filter="consumable" style="flex: 1; padding: 4px; border-radius: 3px; border: 1px solid transparent; background: rgba(255,255,255,0.05); color: #ccc; cursor: pointer;">Pociones</button>
+          <button class="inv-filter" data-filter="accessory" style="flex: 1; padding: 4px; border-radius: 3px; border: 1px solid transparent; background: rgba(255,255,255,0.05); color: #ccc; cursor: pointer;">Accesorios</button>
+          <button class="inv-filter" data-filter="quest" style="flex: 1; padding: 4px; border-radius: 3px; border: 1px solid transparent; background: rgba(255,255,255,0.05); color: #ccc; cursor: pointer;">Misión</button>
+        </div>
+
+        <div style="display: flex; gap: 12px; height: 180px;">
+          <!-- Equip List (Accesorios equipados) -->
+          <div style="width: 140px; border-right: 1px solid var(--ui-border); padding-right: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div class="gold-text medieval-text" style="font-size: 0.8rem; text-align: center;">Equipado (Max 2)</div>
+            <div id="hero-equipped-accessories" style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1; justify-content: center;">
+              <!-- Slots for equipped accessories -->
+            </div>
+          </div>
+          
+          <!-- Classified Grid -->
+          <div id="hero-classified-grid" style="flex-grow: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; overflow-y: auto;">
+            <!-- Classified slots -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Spells Configuration -->
+      <div id="tab-hero-spells" class="hero-tab-content hidden">
+        <div style="font-size: 0.8rem; color: var(--ui-text-body); margin-bottom: 8px;">
+          Equipa hasta 2 hechizos. En combate, usa <b class="gold-text">F</b> para lanzar tu hechizo activo y cambia entre tus hechizos equipados con <b class="gold-text">Q</b>.
+        </div>
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+          <!-- Spell slots -->
+          <div style="flex: 1; border: 1px solid var(--ui-border); border-radius: 6px; padding: 8px; text-align: center; background: rgba(255,255,255,0.02);">
+            <div class="gold-text" style="font-size: 0.75rem; margin-bottom: 4px;">Hechizo 1</div>
+            <div id="spell-slot-0" class="hero-spell-slot" style="font-size: 1.5rem; height: 40px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,215,0,0.3); border-radius: 4px; margin-bottom: 4px; cursor: pointer;">-</div>
+            <div id="spell-slot-0-name" style="font-size: 0.7rem; color: #aaa;">Vacío</div>
+          </div>
+          <div style="flex: 1; border: 1px solid var(--ui-border); border-radius: 6px; padding: 8px; text-align: center; background: rgba(255,255,255,0.02);">
+            <div class="gold-text" style="font-size: 0.75rem; margin-bottom: 4px;">Hechizo 2</div>
+            <div id="spell-slot-1" class="hero-spell-slot" style="font-size: 1.5rem; height: 40px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,215,0,0.3); border-radius: 4px; margin-bottom: 4px; cursor: pointer;">-</div>
+            <div id="spell-slot-1-name" style="font-size: 0.7rem; color: #aaa;">Vacío</div>
+          </div>
+        </div>
+
+        <div class="gold-text medieval-text" style="font-size: 0.85rem; margin-bottom: 6px; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 4px;">Hechizos Disponibles</div>
+        <div id="hero-spells-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;">
+          <!-- Spells options -->
+        </div>
+      </div>
+
+      <!-- Tab 4: Party System -->
+      <div id="tab-hero-party" class="hero-tab-content hidden">
+        <div style="font-size: 0.8rem; color: var(--ui-text-body); margin-bottom: 8px; line-height: 1.3;">
+          Crea o únete a un grupo temporal en memoria para compartir créditos de misiones en tiempo real.
+        </div>
+        
+        <!-- Join / Create Forms -->
+        <div id="party-setup-section" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;">
+          <input type="text" id="party-name-input" placeholder="Nombre del Grupo" style="padding: 8px; border: 1px solid var(--ui-border); border-radius: 4px; background: rgba(0,0,0,0.4); color: #fff; font-family: var(--font-body); font-size: 0.85rem;" />
+          <div style="display: flex; gap: 8px;">
+            <button id="btn-party-create" class="inv-filter" style="flex: 1; padding: 8px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05); color: #ccc;">Crear Grupo</button>
+            <button id="btn-party-join" class="inv-filter" style="flex: 1; padding: 8px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05); color: #ccc;">Unirse</button>
+          </div>
+        </div>
+
+        <!-- Active Party Info -->
+        <div id="party-active-section" class="hidden" style="border: 1px solid var(--ui-border); border-radius: 6px; padding: 10px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 6px;">
+            <div class="gold-text medieval-text" style="font-size: 0.95rem;">Grupo: <span id="party-current-name" style="color:#fff;">-</span></div>
+            <button id="btn-party-leave" style="padding: 4px 10px; border: 1px solid #ff4d4d; background: rgba(255,77,77,0.15); color: #ff4d4d; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-family: var(--font-title);">Salir</button>
+          </div>
+          <div>
+            <div class="gold-text medieval-text" style="font-size: 0.8rem; margin-bottom: 4px;">Miembros del Grupo:</div>
+            <div id="party-members-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;">
+              <!-- Members list will be loaded here -->
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -84,9 +193,11 @@
           • <b>ESPACIO:</b> Atacar (Mantener para cargar)<br>
           • <b>SHIFT:</b> Esquivar (Voltereta)<br>
           • <b>1, 2, 3:</b> Cambiar Arma<br>
-          • <b>Q, F:</b> Hechizos<br>
+          • <b>Q:</b> Cambiar Hechizo Activo<br>
+          • <b>F:</b> Lanzar Hechizo Activo<br>
           • <b>E:</b> Interactuar (NPCs, Carteles)<br>
           • <b>H, M:</b> Usar poción de vida/maná<br>
+          • <b>Y:</b> Hoja de Héroe<br>
         </div>
         <button class="hud-btn" id="btn-privacy" style="text-align: center;">Aviso de Privacidad</button>
         <button class="hud-btn" id="btn-about" style="text-align: center;">Sobre Mí</button>
@@ -104,6 +215,11 @@
         <span class="slot-key">M</span>
         <span class="slot-icon">💧</span>
         <span class="slot-count" id="count-mp">0</span>
+      </div>
+      <div class="quick-slot active-spell-hud" id="hud-active-spell" title="Hechizo Activo (F para lanzar, Q para cambiar)">
+        <span class="slot-key">F</span>
+        <span class="slot-icon" id="hud-active-spell-icon">🛡️</span>
+        <span class="slot-count" id="hud-active-spell-name" style="font-size: 0.55rem; bottom: 2px; right: auto; left: 50%; transform: translateX(-50%); white-space: nowrap;">Escudo</span>
       </div>
     </div>
   </div>
@@ -145,6 +261,18 @@
       
       <div class="activities-grid" id="activities-grid">
         <!-- Buttons injected dynamically or hardcoded -->
+      </div>
+
+      <!-- Fitbit Integration Section -->
+      <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--ui-border); display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
+          <span class="gold-text medieval-text">🔗 Google Health (Fitbit)</span>
+          <span id="fitbit-status" style="color: var(--ui-text-dim);">No vinculado</span>
+        </div>
+        <div id="fitbit-actions" style="display: flex; gap: 8px;">
+          <button id="btn-fitbit-connect" class="inv-filter" style="flex: 1; padding: 6px 12px; font-family: var(--font-title); font-size: 0.8rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05); color: #ccc;">Vincular Cuenta</button>
+          <button id="btn-fitbit-sync" class="inv-filter hidden" style="flex: 1; padding: 6px 12px; font-family: var(--font-title); font-size: 0.8rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,215,0,0.15); color: #fff;">Sincronizar Hoy</button>
+        </div>
       </div>
     </div>
   </div>

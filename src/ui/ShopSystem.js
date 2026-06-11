@@ -1,3 +1,5 @@
+import SaveSystem from '../utils/SaveSystem.js';
+
 export default class ShopSystem {
   constructor(game, dialogueSystem) {
     this.game = game;
@@ -25,35 +27,47 @@ export default class ShopSystem {
     this.dialogue.showChoices('Recepcionista', '¿Qué te gustaría comprar hoy?', choices);
   }
 
-  _buyHealthPotion(player) {
+  async _buyHealthPotion(player) {
     if (player.gold >= 25) {
-      player.gold -= 25;
-      player.addItem({ id: 'potion_hp', name: 'Agua Mineral', count: 1, icon: '🥤' });
-      
-      this.game.events.emit('update-gold', player.gold);
-      this.game.events.emit('show-notification', 'Compraste Agua Mineral', '#3ac55e');
-      
-      this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Agua Mineral bien fría!', '¿Algo más?'], () => {
-        // Re-open shop
-        setTimeout(() => this.openShop(player), 100);
-      });
+      const updatedCharacter = await SaveSystem.buyItem('potion_hp', 25, 'Agua Mineral', '🥤', 'consumable');
+      if (updatedCharacter) {
+        player.gold = updatedCharacter.gold;
+        player.inventory = updatedCharacter.inventory;
+        
+        this.game.events.emit('update-gold', player.gold);
+        this.game.events.emit('update-inventory', player.inventory);
+        this.game.events.emit('show-notification', 'Compraste Agua Mineral', '#3ac55e');
+        
+        this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Agua Mineral bien fría!', '¿Algo más?'], () => {
+          // Re-open shop
+          setTimeout(() => this.openShop(player), 100);
+        });
+      } else {
+        this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
+      }
     } else {
       this.dialogue.show('Recepcionista', ['No tienes suficiente oro para comprar Agua Mineral.']);
     }
   }
 
-  _buyManaPotion(player) {
+  async _buyManaPotion(player) {
     if (player.gold >= 25) {
-      player.gold -= 25;
-      player.addItem({ id: 'potion_mp', name: 'Café Cargado', count: 1, icon: '☕' });
-      
-      this.game.events.emit('update-gold', player.gold);
-      this.game.events.emit('show-notification', 'Compraste Café Cargado', '#4488ff');
-      
-      this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Café bien cargado!', '¿Algo más?'], () => {
-        // Re-open shop
-        setTimeout(() => this.openShop(player), 100);
-      });
+      const updatedCharacter = await SaveSystem.buyItem('potion_mp', 25, 'Café Cargado', '☕', 'consumable');
+      if (updatedCharacter) {
+        player.gold = updatedCharacter.gold;
+        player.inventory = updatedCharacter.inventory;
+        
+        this.game.events.emit('update-gold', player.gold);
+        this.game.events.emit('update-inventory', player.inventory);
+        this.game.events.emit('show-notification', 'Compraste Café Cargado', '#4488ff');
+        
+        this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Café bien cargado!', '¿Algo más?'], () => {
+          // Re-open shop
+          setTimeout(() => this.openShop(player), 100);
+        });
+      } else {
+        this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
+      }
     } else {
       this.dialogue.show('Recepcionista', ['No tienes suficiente oro para comprar Café.']);
     }

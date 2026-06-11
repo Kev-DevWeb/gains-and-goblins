@@ -221,6 +221,124 @@ export default class SaveSystem {
   }
 
   /**
+   * Securely notify server that an enemy was killed.
+   */
+  static async enemyKilled(enemyName) {
+    const userId = this.getUserId();
+    if (!userId) return null;
+    try {
+      const response = await fetch(`${BACKEND_URL}/character/enemy-killed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, enemyName })
+      });
+      if (!response.ok) throw new Error('Error al notificar muerte de enemigo.');
+      const data = await response.json();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
+      return data;
+    } catch (err) {
+      console.warn('[SaveSystem] enemyKilled failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Securely open a chest.
+   */
+  static async openChest(mapId, x, y) {
+    const userId = this.getUserId();
+    if (!userId) return null;
+    try {
+      const response = await fetch(`${BACKEND_URL}/character/open-chest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, mapId, x, y })
+      });
+      if (!response.ok) throw new Error('Error al abrir cofre.');
+      const data = await response.json();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
+      return data;
+    } catch (err) {
+      console.warn('[SaveSystem] openChest failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Securely buy an item.
+   */
+  static async buyItem(itemId, price, name, icon, type) {
+    const userId = this.getUserId();
+    if (!userId) return null;
+    try {
+      const response = await fetch(`${BACKEND_URL}/character/buy-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, itemId, price, name, icon, type })
+      });
+      if (!response.ok) throw new Error('Error al comprar item.');
+      const character = await response.json();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(character));
+      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character } }));
+      return character;
+    } catch (err) {
+      console.warn('[SaveSystem] buyItem failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Securely consume/use an item.
+   */
+  static async consumeItem(itemId) {
+    const userId = this.getUserId();
+    if (!userId) return null;
+    try {
+      const response = await fetch(`${BACKEND_URL}/character/consume-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, itemId })
+      });
+      if (!response.ok) throw new Error('Error al consumir item.');
+      const character = await response.json();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(character));
+      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character } }));
+      return character;
+    } catch (err) {
+      console.warn('[SaveSystem] consumeItem failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Securely sync Fitbit exercises with the server.
+   */
+  static async syncFitbit() {
+    const userId = this.getUserId();
+    if (!userId) return null;
+    try {
+      const response = await fetch(`${BACKEND_URL}/character/fitbit/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Error al sincronizar con Google Health.');
+      }
+      const data = await response.json();
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
+      return data;
+    } catch (err) {
+      console.warn('[SaveSystem] syncFitbit failed:', err);
+      return { error: err.message };
+    }
+  }
+
+  /**
    * Delete the local cache and authentication.
    */
   static deleteSave() {

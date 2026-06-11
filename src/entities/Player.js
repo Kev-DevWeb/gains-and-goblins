@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { PLAYER_SPEED, PLAYER_ATTACK_COOLDOWN, WEAPONS, BASE_STATS, TILE_SIZE, BRANCHES } from '../utils/constants.js';
+import SaveSystem from '../utils/SaveSystem.js';
 
 export default class Player extends Phaser.Physics.Arcade.Sprite {
   constructor(scene, x, y) {
@@ -21,7 +22,21 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.mana = this.maxMana;
     this.xp = 0;
     this.gold = 0;
-    this.inventory = [];
+    
+    // Initial inventory with classified items
+    this.inventory = [
+      { id: 'potion_hp', name: 'Agua Mineral', count: 3, icon: '🥤', type: 'consumable' },
+      { id: 'potion_mp', name: 'Café Cargado', count: 3, icon: '☕', type: 'consumable' },
+      { id: 'acc_strength_ring', name: 'Anillo de Fuerza', count: 1, icon: '💍', type: 'accessory', effect: { strength: 2, resistance: 1 } },
+      { id: 'acc_intellect_amulet', name: 'Amuleto de Intelecto', count: 1, icon: '📿', type: 'accessory', effect: { intelligence: 2, willpower: 1 } },
+      { id: 'acc_dexterity_cloak', name: 'Capa de Destreza', count: 1, icon: '🧥', type: 'accessory', effect: { dexterity: 2, speed: 1 } },
+      { id: 'quest_goblin_tooth', name: 'Diente de Goblin', count: 0, icon: '🦷', type: 'quest' },
+      { id: 'quest_slime_jelly', name: 'Gelatina de Slime', count: 0, icon: '🟢', type: 'quest' }
+    ];
+    this.equippedAccessories = [];
+    this.spells = ['shield', 'ghost_swords', 'heal'];
+    this.equippedSpells = ['shield', 'ghost_swords'];
+    this.activeSpellIndex = 0;
 
     // Daily activity tracking
     this.activitiesToday = {};
@@ -69,11 +84,16 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   get vitality() {
-    return this.branchPoints.vitality ?? 100;
+    const rawVal = this.branchPoints.vitality ?? 100;
+    if (this.inRecovery) {
+      return Math.min(100, rawVal);
+    }
+    return rawVal;
   }
 
   set vitality(value) {
-    this.branchPoints.vitality = Math.max(0, Math.min(300, value));
+    const limit = this.inRecovery ? 100 : 300;
+    this.branchPoints.vitality = Math.max(0, Math.min(limit, value));
   }
 
   _startManaRegen() {
@@ -294,6 +314,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.dominantBranch && statKey === this.dominantBranch) {
       damage = Math.ceil(damage * 1.15);
     }
+
+    // Rusted (inRecovery) penalty: -20% attack damage
+    if (this.inRecovery) {
+      damage = Math.floor(damage * 0.8);
+    }
     return damage;
   }
 
@@ -415,6 +440,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       let cost = isAoE ? weaponObj.manaCost * 2.5 : weaponObj.manaCost; // AoE costs more
       if (this.isUltimateActive) {
         cost = 0; // Mana cost reduced to 0 during ultimate
+      }
+      if (this.inRecovery) {
+        cost = Math.ceil(cost * 1.2); // +20% mana cost if Rusted/inRecovery
       }
       if (this.mana < cost) {
         this.scene.game.events.emit('show-notification', 'Sin maná suficiente', '#e94560');
@@ -677,7 +705,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.scene.game.events.emit('update-inventory', this.inventory);
   }
 
-  consumeItem(itemId) {
+  async consumeItem(itemId) {
     const itemIndex = this.inventory.findIndex(i => i.id === itemId);
     if (itemIndex === -1) {
       this.scene.game.events.emit('show-notification', 'No tienes pociones', '#e94560');
@@ -692,26 +720,31 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         this.scene.game.events.emit('show-notification', 'Salud al máximo', '#8b8b8b');
         return;
       }
-      this.hp = Math.min(this.hp + 30, this.maxHp);
-      this.scene.game.events.emit('update-health', this.hp, this.maxHp);
-      this.scene.game.events.emit('show-notification', '+30 HP', '#3ac55e');
-    } 
-    else if (itemId === 'potion_mp') {
+    } else if (itemId === 'potion_mp') {
       if (this.mana >= this.maxMana) {
         this.scene.game.events.emit('show-notification', 'Maná al máximo', '#8b8b8b');
         return;
       }
-      this.mana = Math.min(this.mana + 20, this.maxMana);
-      this.scene.game.events.emit('update-mana', this.mana, this.maxMana);
-      this.scene.game.events.emit('show-notification', '+20 Maná', '#4488ff');
     }
 
-    item.count -= 1;
-    if (item.count <= 0) {
-      this.inventory.splice(itemIndex, 1);
-    }
+    const updated = await SaveSystem.consumeItem(itemId);
+    if (updated) {
+      this.inventory = updated.inventory;
+      
+      if (itemId === 'potion_hp') {
+        this.hp = Math.min(this.hp + 30, this.maxHp);
+        this.scene.game.events.emit('update-health', this.hp, this.maxHp);
+        this.scene.game.events.emit('show-notification', '+30 HP', '#3ac55e');
+      } else if (itemId === 'potion_mp') {
+        this.mana = Math.min(this.mana + 20, this.maxMana);
+        this.scene.game.events.emit('update-mana', this.mana, this.maxMana);
+        this.scene.game.events.emit('show-notification', '+20 Maná', '#4488ff');
+      }
 
-    this.scene.game.events.emit('update-inventory', this.inventory);
+      this.scene.game.events.emit('update-inventory', this.inventory);
+    } else {
+      this.scene.game.events.emit('show-notification', 'Error de red al consumir', '#e94560');
+    }
   }
 
   logActivity(activityId) {
@@ -870,6 +903,52 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     return true;
   }
 
+  equipAccessory(item) {
+    if (this.equippedAccessories.includes(item.id)) return;
+    if (this.equippedAccessories.length >= 2) {
+      // Unequip first one to make room
+      const firstId = this.equippedAccessories[0];
+      const firstItem = this.inventory.find(i => i.id === firstId);
+      if (firstItem) this.unequipAccessory(firstItem);
+    }
+    this.equippedAccessories.push(item.id);
+    // Apply stats
+    if (item.effect) {
+      for (const [stat, val] of Object.entries(item.effect)) {
+        this.stats[stat] = (this.stats[stat] || 5) + val;
+      }
+    }
+    this.scene.game.events.emit('update-stats', this.stats);
+    this.scene.game.events.emit('update-equipped-accessories', this.equippedAccessories);
+  }
+
+  unequipAccessory(item) {
+    const idx = this.equippedAccessories.indexOf(item.id);
+    if (idx === -1) return;
+    this.equippedAccessories.splice(idx, 1);
+    // Remove stats
+    if (item.effect) {
+      for (const [stat, val] of Object.entries(item.effect)) {
+        this.stats[stat] = Math.max(5, (this.stats[stat] || 5) - val);
+      }
+    }
+    this.scene.game.events.emit('update-stats', this.stats);
+    this.scene.game.events.emit('update-equipped-accessories', this.equippedAccessories);
+  }
+
+  switchSpell() {
+    if (this.isDead) return;
+    if (this.equippedSpells.length < 2) return;
+    this.activeSpellIndex = (this.activeSpellIndex + 1) % this.equippedSpells.length;
+    this.scene.game.events.emit('active-spell-changed', this.equippedSpells[this.activeSpellIndex]);
+    const uiScene = this.scene.scene.get('UI');
+    if (uiScene?.showNotification) {
+      const spellNames = { shield: 'Escudo de Maná', ghost_swords: 'Espadas Fantasma', heal: 'Fuego Curativo' };
+      const activeSpellKey = this.equippedSpells[this.activeSpellIndex];
+      uiScene.showNotification(`Hechizo Activo: ${spellNames[activeSpellKey] || activeSpellKey}`, '#a855f7');
+    }
+  }
+
   hasLoggedActivityToday() {
     const today = new Date().toISOString().split('T')[0];
     return Object.values(this.activitiesToday).some(date => date === today);
@@ -879,6 +958,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
    * Get save data for persistence.
    */
   getSaveData() {
+    // Pack new fields inside branchPoints to avoid DB migrations
+    const bp = {
+      ...this.branchPoints,
+      equippedAccessories: this.equippedAccessories,
+      spells: this.spells,
+      equippedSpells: this.equippedSpells,
+      activeSpellIndex: this.activeSpellIndex
+    };
+
     return {
       stats: this.stats,
       level: this.level,
@@ -893,10 +981,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       inventory: this.inventory,
       affinityData: this.affinityData,
       dominantBranch: this.dominantBranch,
-      branchPoints: this.branchPoints,
+      branchPoints: bp,
       lastDeathTime: this.lastDeathTime,
       consecutiveDeaths: this.consecutiveDeaths,
       moral: this.moral,
+      inRecovery: this.inRecovery
     };
   }
 
@@ -905,6 +994,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
    */
   loadSaveData(data) {
     if (!data) return;
+    this.inRecovery = data.inRecovery || false;
     this.stats = data.stats || this.stats;
     this.level = data.level || this.level;
     this.xp = data.xp || 0;
@@ -915,7 +1005,38 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.gold = data.gold || 0;
     this.currentWeaponKey = data.currentWeaponKey || WEAPONS.SWORD.key;
     this.activitiesToday = data.activitiesToday || {};
-    this.inventory = data.inventory || [];
+
+    const baseItems = {
+      potion_hp: { name: 'Agua Mineral', icon: '🥤', type: 'consumable' },
+      potion_mp: { name: 'Café Cargado', icon: '☕', type: 'consumable' },
+      acc_strength_ring: { name: 'Anillo de Fuerza', icon: '💍', type: 'accessory', effect: { strength: 2, resistance: 1 } },
+      acc_intellect_amulet: { name: 'Amuleto de Intelecto', icon: '📿', type: 'accessory', effect: { intelligence: 2, willpower: 1 } },
+      acc_dexterity_cloak: { name: 'Capa de Destreza', icon: '🧥', type: 'accessory', effect: { dexterity: 2, speed: 1 } },
+      quest_goblin_tooth: { name: 'Diente de Goblin', icon: '🦷', type: 'quest' },
+      quest_slime_jelly: { name: 'Gelatina de Slime', icon: '🟢', type: 'quest' }
+    };
+
+    const loadedInventory = data.inventory || [];
+    this.inventory = loadedInventory.map(item => {
+      const base = baseItems[item.id];
+      if (base) {
+        return { ...item, ...base };
+      }
+      return item;
+    });
+
+    if (loadedInventory.length === 0) {
+      this.inventory = [
+        { id: 'potion_hp', name: 'Agua Mineral', count: 3, icon: '🥤', type: 'consumable' },
+        { id: 'potion_mp', name: 'Café Cargado', count: 3, icon: '☕', type: 'consumable' },
+        { id: 'acc_strength_ring', name: 'Anillo de Fuerza', count: 1, icon: '💍', type: 'accessory', effect: { strength: 2, resistance: 1 } },
+        { id: 'acc_intellect_amulet', name: 'Amuleto de Intelecto', count: 1, icon: '📿', type: 'accessory', effect: { intelligence: 2, willpower: 1 } },
+        { id: 'acc_dexterity_cloak', name: 'Capa de Destreza', count: 1, icon: '🧥', type: 'accessory', effect: { dexterity: 2, speed: 1 } },
+        { id: 'quest_goblin_tooth', name: 'Diente de Goblin', count: 0, icon: '🦷', type: 'quest' },
+        { id: 'quest_slime_jelly', name: 'Gelatina de Slime', count: 0, icon: '🟢', type: 'quest' }
+      ];
+    }
+
     this.affinityData = data.affinityData || {
       month: this._currentMonth(),
       counts: { strength: 0, dexterity: 0, intelligence: 0, willpower: 0 }
@@ -925,9 +1046,13 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     if (this.branchPoints.vitality === undefined) {
       this.branchPoints.vitality = 100;
     }
-    this.lastDeathTime = data.lastDeathTime || 0;
-    this.consecutiveDeaths = data.consecutiveDeaths || 0;
-    this.moral = data.moral ?? 0;
+
+    // Unpack from branchPoints Json
+    this.equippedAccessories = this.branchPoints.equippedAccessories || [];
+    this.spells = this.branchPoints.spells || ['shield', 'ghost_swords', 'heal'];
+    this.equippedSpells = this.branchPoints.equippedSpells || ['shield', 'ghost_swords'];
+    this.activeSpellIndex = this.branchPoints.activeSpellIndex || 0;
+
     // Restart mana regen with loaded willpower stat
     this._startManaRegen();
   }

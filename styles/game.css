@@ -1294,3 +1294,219 @@ body {
   min-height: 1.2rem;
 }
 
+/* ── Hero Panel Styles ── */
+.hero-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  border-bottom: 2px solid rgba(255, 215, 0, 0.2);
+  padding-bottom: 8px;
+}
+
+.hero-tab {
+  flex: 1;
+  background: rgba(22, 33, 62, 0.4);
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  color: var(--ui-text-dim);
+  font-family: var(--font-title);
+  font-size: 1rem;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.25s ease;
+  text-align: center;
+}
+
+.hero-tab:hover {
+  background: rgba(255, 215, 0, 0.1);
+  color: #fff;
+  border-color: var(--clr-gold);
+}
+
+.hero-tab.active {
+  background: rgba(255, 215, 0, 0.15);
+  color: var(--clr-gold);
+  border-color: var(--clr-gold);
+  text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
+  box-shadow: inset 0 0 8px rgba(255, 215, 0, 0.1);
+}
+
+.hero-tab-content.hidden {
+  display: none;
+}
+
+/* Branch & Stat Row Styles */
+.hero-branch-card {
+  background: rgba(10, 10, 30, 0.6);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+
+.hero-branch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed rgba(255, 215, 0, 0.15);
+  padding-bottom: 4px;
+}
+
+.hero-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.8rem;
+}
+
+.hero-stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-stat-desc {
+  font-size: 0.65rem;
+  color: var(--ui-text-dim);
+  margin-top: 1px;
+}
+
+.hero-stat-value-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-allocate-stat {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #27ae60;
+  border: 1px solid #2ecc71;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-allocate-stat:hover {
+  background: #2ecc71;
+  transform: scale(1.15);
+  box-shadow: 0 0 6px #2ecc71;
+}
+
+/* Spell Row Styles */
+.hero-spell-row {
+  background: rgba(22, 33, 62, 0.4);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.hero-spell-row:hover {
+  border-color: rgba(255, 215, 0, 0.4);
+  background: rgba(22, 33, 62, 0.6);
+}
+
+.hero-spell-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hero-spell-meta {
+  font-size: 0.68rem;
+  color: var(--ui-text-dim);
+}
+
+.hero-spell-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-spell-equip {
+  background: var(--clr-brown);
+  border: 1px solid var(--clr-tan);
+  color: white;
+  font-family: var(--font-title);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.btn-spell-equip:hover {
+  background: var(--clr-gold-dim);
+  border-color: var(--clr-gold);
+}
+
+.btn-spell-equip.equipped {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: var(--clr-gold);
+  color: var(--clr-gold);
+  cursor: default;
+}
+
+/* Accessory slot style */
+.accessory-slot {
+  height: 52px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.accessory-slot:hover {
+  border-color: var(--ui-border-hover);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.accessory-slot.filled {
+  border-color: var(--clr-gold);
+  background: rgba(255, 215, 0, 0.04);
+}
+
+.accessory-slot__icon {
+  font-size: 1.4rem;
+}
+
+.accessory-slot__info {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.7rem;
+}
+
+.accessory-slot__name {
+  color: var(--ui-text-primary);
+  font-weight: 600;
+}
+
+.accessory-slot__bonus {
+  color: var(--clr-light-green);
+  font-size: 0.6rem;
+}
+
+.accessory-slot__empty {
+  color: var(--ui-text-dim);
+  font-size: 0.68rem;
+  text-align: center;
+  width: 100%;
+}
+
+
