@@ -26,6 +26,10 @@ function getBackendUrl() {
 const BACKEND_URL = getBackendUrl();
 
 export default class SaveSystem {
+  static getBackendUrl() {
+    return getBackendUrl();
+  }
+
   static getUserId() {
     return localStorage.getItem(USER_ID_KEY);
   }
