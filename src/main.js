@@ -241,26 +241,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-privacy').onclick = () => document.getElementById('privacy-modal').classList.toggle('hidden');
   document.getElementById('btn-about').onclick = () => document.getElementById('about-modal').classList.toggle('hidden');
 
-  // Party Tab Controls
+  // Party / P2P Tab Controls
   document.getElementById('btn-party-create').onclick = () => {
-    const nameInput = document.getElementById('party-name-input');
-    const name = nameInput.value.trim();
-    if (name && game) {
-      game.events.emit('party-create', name);
-    }
-  };
-
-  document.getElementById('btn-party-join').onclick = () => {
-    const nameInput = document.getElementById('party-name-input');
-    const name = nameInput.value.trim();
-    if (name && game) {
-      game.events.emit('party-join', name);
+    const emailInput = document.getElementById('party-name-input');
+    const email = emailInput.value.trim();
+    if (email && game) {
+      game.events.emit('send-invite', email);
+      emailInput.value = ''; // clear input
     }
   };
 
   document.getElementById('btn-party-leave').onclick = () => {
     if (game) {
-      game.events.emit('party-leave');
+      game.events.emit('leave-world');
     }
   };
 
@@ -795,41 +788,79 @@ function setupGameEventListeners() {
     }
   });
 
-  game.events.on('party-updated', (party) => {
+  game.events.on('p2p-state-changed', (mySlot, connectionsCount) => {
     const setupSec = document.getElementById('party-setup-section');
     const activeSec = document.getElementById('party-active-section');
     const curName = document.getElementById('party-current-name');
     const list = document.getElementById('party-members-list');
+    const leaveBtn = document.getElementById('btn-party-leave');
 
-    if (setupSec) setupSec.classList.add('hidden');
-    if (activeSec) activeSec.classList.remove('hidden');
-    if (curName) curName.innerText = party.id;
-
-    if (list) {
-      list.innerHTML = '';
-      party.members.forEach(member => {
+    if (mySlot === 'alone' || !mySlot) {
+      if (curName) curName.innerText = 'Solo';
+      if (curName) curName.style.color = '#ffd700';
+      if (leaveBtn) leaveBtn.classList.add('hidden');
+      if (list) list.innerHTML = '';
+      if (setupSec) setupSec.classList.remove('hidden');
+    } else {
+      if (curName) curName.innerText = `${mySlot} (En Mundo)`;
+      if (curName) curName.style.color = '#2ecc71';
+      if (leaveBtn) leaveBtn.classList.remove('hidden');
+      if (setupSec) setupSec.classList.add('hidden');
+      
+      // Mostrar la lista de jugadores conectados
+      const worldScene = game.scene.keys.WorldScene;
+      if (list && worldScene && worldScene._p2p) {
+        list.innerHTML = '';
+        // Nosotros mismos
+        const myName = SaveSystem.load()?.name || 'Tú';
         list.innerHTML += `
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,215,0,0.1); border-radius: 4px; font-size: 0.8rem;">
-            <span style="color: #e8d5b7;">👤 ${member.characterName}</span>
-            <span style="color: #8b8b8b; font-size: 0.7rem;">${member.userId === SaveSystem.getUserId() ? '(Tú)' : 'Miembro'}</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,215,0,0.25); border-radius: 4px; font-size: 0.8rem; margin-bottom: 4px;">
+            <span style="color: #ffd700; font-weight: bold;">👤 ${myName}</span>
+            <span style="color: #2ecc71; font-size: 0.7rem; font-weight: bold;">${mySlot}</span>
           </div>
         `;
-      });
+
+        // Otros conectados
+        worldScene._p2p.connections.forEach((connData, peerId) => {
+          const peerName = connData.characterName || 'Compañero';
+          const peerSlot = connData.slot || 'Guest';
+          list.innerHTML += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.8rem; margin-bottom: 4px;">
+              <span style="color: #e8d5b7;">👤 ${peerName}</span>
+              <span style="color: #88aaff; font-size: 0.7rem;">${peerSlot}</span>
+            </div>
+          `;
+        });
+      }
     }
   });
 
-  game.events.on('party-left', () => {
-    const setupSec = document.getElementById('party-setup-section');
-    const activeSec = document.getElementById('party-active-section');
-    const curName = document.getElementById('party-current-name');
-    const list = document.getElementById('party-members-list');
-    const nameInput = document.getElementById('party-name-input');
+  game.events.on('invite-received', (inviteData) => {
+    const inviteModal = document.getElementById('p2p-invite-modal');
+    const hostNameSpan = document.getElementById('p2p-invite-host-name');
+    const hostEmailSpan = document.getElementById('p2p-invite-host-email');
+    const acceptBtn = document.getElementById('btn-p2p-accept');
+    const declineBtn = document.getElementById('btn-p2p-decline');
 
-    if (setupSec) setupSec.classList.remove('hidden');
-    if (activeSec) activeSec.classList.add('hidden');
-    if (curName) curName.innerText = '-';
-    if (list) list.innerHTML = '';
-    if (nameInput) nameInput.value = '';
+    if (inviteModal && hostNameSpan && hostEmailSpan) {
+      hostNameSpan.innerText = inviteData.fromCharacterName;
+      hostEmailSpan.innerText = inviteData.fromEmail;
+      
+      inviteModal.style.display = 'flex';
+      inviteModal.classList.remove('hidden');
+
+      acceptBtn.onclick = () => {
+        game.events.emit('invite-accept', { inviteId: inviteData.inviteId });
+        inviteModal.style.display = 'none';
+        inviteModal.classList.add('hidden');
+      };
+
+      declineBtn.onclick = () => {
+        game.events.emit('invite-decline', { inviteId: inviteData.inviteId });
+        inviteModal.style.display = 'none';
+        inviteModal.classList.add('hidden');
+      };
+    }
   });
 }
 

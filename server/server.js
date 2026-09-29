@@ -10,9 +10,14 @@ dotenv.config();
 const prisma = new PrismaClient();
 const app = express();
 
-const parties = new Map(); // key: partyName, value: { id, members: [{ socketId, userId, characterName }] }
-const partyDisconnectTimers = new Map(); // key: userId, value: setTimeout object
-const activePlayers = new Map();
+// ── P2P SIGNALING STATE ────────────────────────────────────────
+// Users currently connected via Socket.IO
+// key: socketId, value: { userId, email, characterName, socketId }
+const onlineUsers = new Map();
+
+// Pending invitations
+// key: inviteId, value: { fromSocketId, fromEmail, fromCharacterName, toEmail }
+const pendingInvites = new Map();
 
 const frontendUrl = process.env.FRONTEND_URL?.trim();
 
@@ -1008,6 +1013,20 @@ app.post('/api/character/fitbit/sync', async (req, res) => {
   }
 });
 
+// ── REST: Friends / Invite lookup ─────────────────────────────────
+
+// GET /api/friends/online?email=X — check if a user with given email is online
+app.get('/api/friends/online', (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'email requerido.' });
+  const found = Array.from(onlineUsers.values()).find(u => u.email === email.toLowerCase().trim());
+  if (found) {
+    res.json({ online: true, characterName: found.characterName });
+  } else {
+    res.json({ online: false });
+  }
+});
+
 // Start Server with Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -1017,253 +1036,157 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
   console.log(`[Socket] Cliente conectado: ${socket.id}`);
 
-  socket.on('join-game', ({ userId, characterName, mapId, x, y }) => {
+  // ── PRESENCE ──────────────────────────────────────────────────
+  // peerJsId = el ID de PeerJS del cliente (para que los guests puedan conectarse directamente)
+  socket.on('user-online', ({ userId, email, characterName, peerJsId }) => {
     socket.userId = userId;
-    socket.mapId = mapId;
-    
-    const playerState = {
+    socket.userEmail = email ? email.toLowerCase().trim() : '';
+    socket.characterName = characterName;
+    socket.peerJsId = peerJsId || null;
+    socket.partnerIds = socket.partnerIds || [];
+
+    onlineUsers.set(socket.id, {
       socketId: socket.id,
       userId,
+      email: socket.userEmail,
       characterName,
-      mapId,
-      x,
-      y,
-      facing: 'down',
-      weaponKey: 'sword',
-      anim: 'idle'
-    };
-    activePlayers.set(socket.id, playerState);
+      peerJsId: socket.peerJsId
+    });
 
-    socket.join(mapId);
-    socket.to(mapId).emit('player-joined', playerState);
+    console.log(`[Socket] En linea: ${characterName} <${socket.userEmail}> peerJs=${peerJsId}`);
+  });
 
-    const roomPlayers = Array.from(activePlayers.values()).filter(p => p.mapId === mapId && p.socketId !== socket.id);
-    socket.emit('current-players', roomPlayers);
+  // El host actualiza su PeerJS ID una vez que PeerJS lo asigna
+  socket.on('update-peer-id', ({ peerJsId }) => {
+    socket.peerJsId = peerJsId;
+    const u = onlineUsers.get(socket.id);
+    if (u) u.peerJsId = peerJsId;
+    console.log(`[Socket] PeerId actualizado: ${socket.characterName} -> ${peerJsId}`);
+  });
 
-    // --- RECONNECT GRACE PERIOD & MAP TRANSITION FOR PARTIES ---
-    // If the user's userId was in a party disconnect grace period, cancel the timeout.
-    if (partyDisconnectTimers.has(userId)) {
-      clearTimeout(partyDisconnectTimers.get(userId));
-      partyDisconnectTimers.delete(userId);
-      console.log(`[Socket] Cancelado timeout de desconexión de grupo para userId: ${userId}`);
+  // ── INVITATIONS ───────────────────────────────────────────────
+  socket.on('send-invite', ({ toEmail }) => {
+    if (!toEmail) return socket.emit('invite-error', 'Correo de destino requerido.');
+    const normalizedEmail = toEmail.toLowerCase().trim();
+
+    const hostUser = onlineUsers.get(socket.id);
+    if (!hostUser) return socket.emit('invite-error', 'Debes estar conectado para invitar.');
+    if (hostUser.email === normalizedEmail) return socket.emit('invite-error', 'No puedes invitarte a ti mismo.');
+
+    const targetUser = Array.from(onlineUsers.values()).find(u => u.email === normalizedEmail);
+    if (!targetUser) return socket.emit('invite-error', `${normalizedEmail} no esta en linea.`);
+
+    // Sala llena: maximo 3 guests (4 jugadores total)
+    socket.partnerIds = socket.partnerIds || [];
+    if (socket.partnerIds.length >= 3) {
+      return socket.emit('invite-error', 'Tu sala ya esta llena (maximo 4 jugadores).');
     }
 
-    // Find if user is in an in-memory party
-    let joinedParty = null;
-    for (const [pName, pObj] of parties.entries()) {
-      const m = pObj.members.find(member => member.userId === userId);
-      if (m) {
-        m.socketId = socket.id;
-        socket.partyId = pName;
-        socket.join('party_' + pName);
-        joinedParty = pObj;
-        console.log(`[Socket] Reasociado usuario ${characterName} a la party ${pName}`);
-        break;
+    const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    pendingInvites.set(inviteId, {
+      inviteId,
+      fromSocketId: socket.id,
+      fromEmail: hostUser.email,
+      fromCharacterName: hostUser.characterName,
+      fromPeerJsId: hostUser.peerJsId,
+      toEmail: normalizedEmail,
+      toSocketId: targetUser.socketId
+    });
+
+    // Auto-expirar despues de 60s
+    setTimeout(() => {
+      if (pendingInvites.has(inviteId)) {
+        pendingInvites.delete(inviteId);
+        socket.emit('invite-expired', { inviteId });
       }
-    }
+    }, 60000);
 
-    if (joinedParty) {
-      io.to('party_' + joinedParty.id).emit('party-updated', joinedParty);
-    }
+    io.to(targetUser.socketId).emit('invite-received', {
+      inviteId,
+      fromEmail: hostUser.email,
+      fromCharacterName: hostUser.characterName
+    });
+
+    socket.emit('invite-sent', { toEmail: normalizedEmail, inviteId });
+    console.log(`[Invite] ${hostUser.characterName} -> ${normalizedEmail} (${inviteId})`);
   });
 
-  // --- PARTY SYSTEM EVENTS ---
-  socket.on('create-party', ({ partyName }) => {
-    if (!partyName) return socket.emit('party-error', 'El nombre del grupo es obligatorio.');
-    const trimmedName = partyName.trim();
-    if (trimmedName.length < 1 || trimmedName.length > 20) {
-      return socket.emit('party-error', 'El nombre del grupo debe tener entre 1 y 20 caracteres.');
+  // Guest responde a una invitacion
+  socket.on('invite-response', ({ inviteId, accepted }) => {
+    const invite = pendingInvites.get(inviteId);
+    if (!invite) return socket.emit('invite-error', 'La invitacion ya expiro o no existe.');
+    pendingInvites.delete(inviteId);
+
+    if (!accepted) {
+      io.to(invite.fromSocketId).emit('invite-declined', { inviteId, guestEmail: socket.userEmail });
+      console.log(`[Invite] Rechazada: ${inviteId}`);
+      return;
     }
 
-    if (socket.partyId) {
-      return socket.emit('party-error', 'Ya estás en un grupo. Sal primero.');
+    const hostSocket = io.sockets.sockets.get(invite.fromSocketId);
+    if (!hostSocket) return socket.emit('invite-error', 'El host ya no esta disponible.');
+
+    hostSocket.partnerIds = hostSocket.partnerIds || [];
+    if (hostSocket.partnerIds.length >= 3) {
+      return socket.emit('invite-error', 'La sala del host esta llena (maximo 4 jugadores).');
     }
 
-    if (parties.has(trimmedName)) {
-      return socket.emit('party-error', 'El nombre de grupo ya está en uso.');
-    }
+    // Registrar como partners mutuos
+    hostSocket.partnerIds.push(socket.id);
+    socket.partnerIds = socket.partnerIds || [];
+    socket.partnerIds.push(invite.fromSocketId);
 
-    const player = activePlayers.get(socket.id);
-    if (!player) return socket.emit('party-error', 'Error al obtener datos del jugador.');
+    const guestUser = onlineUsers.get(socket.id);
+    const hostUser  = onlineUsers.get(invite.fromSocketId);
 
-    const party = {
-      id: trimmedName,
-      members: [{ socketId: socket.id, userId: socket.userId, characterName: player.characterName }]
-    };
+    // Al host: un guest nuevo se unira (el guest iniciara la conexion PeerJS)
+    io.to(invite.fromSocketId).emit('invite-accepted', {
+      inviteId,
+      role: 'host',
+      guestCharacterName: guestUser ? guestUser.characterName : 'Companero'
+    });
 
-    parties.set(trimmedName, party);
-    socket.partyId = trimmedName;
-    socket.join('party_' + trimmedName);
+    // Al guest: conéctate al PeerJS del host con su hostPeerId
+    socket.emit('invite-accepted', {
+      inviteId,
+      role: 'guest',
+      hostPeerId: invite.fromPeerJsId,
+      hostCharacterName: hostUser ? hostUser.characterName : 'Anfitrion'
+    });
 
-    io.to('party_' + trimmedName).emit('party-updated', party);
-    console.log(`[Socket] Grupo '${trimmedName}' creado por ${player.characterName}`);
+    console.log(`[Invite] Aceptada: ${invite.fromCharacterName} <-> ${guestUser?.characterName}`);
   });
 
-  socket.on('join-party', ({ partyName }) => {
-    if (!partyName) return socket.emit('party-error', 'El nombre del grupo es obligatorio.');
-    const trimmedName = partyName.trim();
-
-    if (socket.partyId) {
-      return socket.emit('party-error', 'Ya estás en un grupo. Sal primero.');
-    }
-
-    const party = parties.get(trimmedName);
-    if (!party) {
-      return socket.emit('party-error', 'El grupo no existe.');
-    }
-
-    const player = activePlayers.get(socket.id);
-    if (!player) return socket.emit('party-error', 'Error al obtener datos del jugador.');
-
-    // Add player to members list if they aren't already there
-    if (!party.members.some(m => m.userId === socket.userId)) {
-      party.members.push({ socketId: socket.id, userId: socket.userId, characterName: player.characterName });
-    }
-
-    socket.partyId = trimmedName;
-    socket.join('party_' + trimmedName);
-
-    io.to('party_' + trimmedName).emit('party-updated', party);
-    console.log(`[Socket] Jugador ${player.characterName} se unió al grupo '${trimmedName}'`);
+  // ── LEAVE WORLD ───────────────────────────────────────────────
+  socket.on('leave-world', () => {
+    _notifyAndClearPartners(socket);
   });
 
-  socket.on('leave-party', () => {
-    if (!socket.partyId) return;
-    const partyName = socket.partyId;
-    const party = parties.get(partyName);
-
-    if (party) {
-      party.members = party.members.filter(m => m.userId !== socket.userId);
-      socket.leave('party_' + partyName);
-      socket.partyId = null;
-      socket.emit('party-left');
-
-      if (party.members.length === 0) {
-        parties.delete(partyName);
-        console.log(`[Socket] Grupo '${partyName}' disuelto porque quedó vacío.`);
-      } else {
-        io.to('party_' + partyName).emit('party-updated', party);
-        console.log(`[Socket] Jugador con ID ${socket.id} salió del grupo '${partyName}'`);
-      }
-    }
-  });
-
-  // --- GENERAL PLAYERS MOVEMENT & COMBAT SYNC ---
-  socket.on('player-moved', (movementData) => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      player.x = movementData.x;
-      player.y = movementData.y;
-      player.facing = movementData.facing;
-      player.anim = movementData.anim;
-      
-      socket.to(player.mapId).emit('player-moved', {
-        socketId: socket.id,
-        x: player.x,
-        y: player.y,
-        facing: player.facing,
-        anim: player.anim
-      });
-    }
-  });
-
-  socket.on('player-switched-weapon', ({ weaponKey }) => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      player.weaponKey = weaponKey;
-      socket.to(player.mapId).emit('player-switched-weapon', {
-        socketId: socket.id,
-        weaponKey
-      });
-    }
-  });
-
-  socket.on('player-attacked', (attackData) => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      socket.to(player.mapId).emit('player-attacked', {
-        socketId: socket.id,
-        attackData
-      });
-    }
-  });
-
-  socket.on('player-cast-spell', (spellKey) => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      socket.to(player.mapId).emit('player-cast-spell', {
-        socketId: socket.id,
-        spellKey
-      });
-    }
-  });
-
-  socket.on('player-rolled', () => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      socket.to(player.mapId).emit('player-rolled', {
-        socketId: socket.id
-      });
-    }
-  });
-
-  socket.on('change-map', ({ mapId, x, y }) => {
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      socket.leave(player.mapId);
-      socket.to(player.mapId).emit('player-left', { socketId: socket.id });
-
-      player.mapId = mapId;
-      player.x = x;
-      player.y = y;
-
-      socket.join(mapId);
-      socket.to(mapId).emit('player-joined', player);
-
-      const roomPlayers = Array.from(activePlayers.values()).filter(p => p.mapId === mapId && p.socketId !== socket.id);
-      socket.emit('current-players', roomPlayers);
-    }
-  });
-
+  // ── DISCONNECT ────────────────────────────────────────────────
   socket.on('disconnect', () => {
-    console.log(`[Socket] Cliente desconectado: ${socket.id}`);
-    const player = activePlayers.get(socket.id);
-    if (player) {
-      socket.to(player.mapId).emit('player-left', { socketId: socket.id });
-      activePlayers.delete(socket.id);
-    }
+    console.log(`[Socket] Desconectado: ${socket.id}`);
+    onlineUsers.delete(socket.id);
+    _notifyAndClearPartners(socket);
 
-    const userId = socket.userId;
-    const partyName = socket.partyId;
-    if (userId && partyName) {
-      console.log(`[Socket] Programado temporizador de 10s para remover userId ${userId} del grupo ${partyName}`);
-      const timer = setTimeout(() => {
-        partyDisconnectTimers.delete(userId);
-        let isTrulyOffline = true;
-        for (const playerState of activePlayers.values()) {
-          if (playerState.userId === userId) {
-            isTrulyOffline = false;
-            break;
-          }
-        }
-        if (isTrulyOffline) {
-          const party = parties.get(partyName);
-          if (party) {
-            party.members = party.members.filter(m => m.userId !== userId);
-            console.log(`[Socket] Grace period de 10s expiró. Removido userId ${userId} del grupo ${partyName}`);
-            if (party.members.length === 0) {
-              parties.delete(partyName);
-              console.log(`[Socket] Grupo '${partyName}' disuelto porque se desconectaron todos los miembros.`);
-            } else {
-              io.to('party_' + partyName).emit('party-updated', party);
-            }
-          }
-        }
-      }, 10000);
-      partyDisconnectTimers.set(userId, timer);
+    for (const [id, inv] of pendingInvites.entries()) {
+      if (inv.fromSocketId === socket.id || inv.toSocketId === socket.id) {
+        pendingInvites.delete(id);
+      }
     }
   });
 });
+
+/** Notifica a todos los partners y limpia la lista */
+function _notifyAndClearPartners(socket) {
+  const partners = socket.partnerIds || [];
+  partners.forEach(pid => {
+    io.to(pid).emit('partner-left', { socketId: socket.id });
+    const pSocket = io.sockets.sockets.get(pid);
+    if (pSocket) {
+      pSocket.partnerIds = (pSocket.partnerIds || []).filter(x => x !== socket.id);
+    }
+  });
+}
 
 server.listen(PORT, () => {
   console.log(`Servidor de Gains & Goblins escuchando en puerto ${PORT}`);

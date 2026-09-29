@@ -10,6 +10,7 @@ import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpa
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
 import { io } from 'socket.io-client';
+import P2PManager from '../utils/P2PManager.js';
 
 export default class WorldScene extends Phaser.Scene {
   constructor() {
@@ -207,17 +208,17 @@ export default class WorldScene extends Phaser.Scene {
     this.cursors.ONE.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.SWORD.key);
-      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.SWORD.key });
+      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.SWORD.key });
     });
     this.cursors.TWO.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.BOW.key);
-      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.BOW.key });
+      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.BOW.key });
     });
     this.cursors.THREE.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.switchWeapon(WEAPONS.MAGIC.key);
-      if (this.socket && this.socket.connected) this.socket.emit('player-switched-weapon', { weaponKey: WEAPONS.MAGIC.key });
+      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.MAGIC.key });
     });
 
     // Spells (Q to switch active spell, F to cast active spell)
@@ -246,7 +247,7 @@ export default class WorldScene extends Phaser.Scene {
     this.cursors.SHIFT.on('down', () => {
       if (this.dialogueSystem && this.dialogueSystem.isActive) return;
       this.player.dodgeRoll();
-      if (this.socket && this.socket.connected) this.socket.emit('player-rolled');
+      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-rolled' });
     });
 
     // Interact action (E key)
@@ -430,109 +431,202 @@ export default class WorldScene extends Phaser.Scene {
     };
     window.addEventListener('character-synced', this._characterSyncedListener);
 
-    // ── Socket.IO Connection ──
+    // ── Socket.IO (Solo señalización) + PeerJS (Datos en tiempo real) ──
     this.otherPlayers = this.add.group();
+    this._p2p = new P2PManager();
+    this._isHost = false;     // true si somos P1
+    this._mySlot = null;      // 'P1', 'P2', 'P3' o 'P4'
+    this._localPlayerLabel = null; // texto P1/P2/P3/P4 encima del jugador local
+
     const userId = SaveSystem.getUserId();
-    const characterName = this.player.name || this.player.stats?.name || 'Héroe';
-    const backendUrl = SaveSystem.getUserId() ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
+    const characterName = saveData?.name || this.player.name || 'Héroe';
+    const userEmail = saveData?.email || '';
+    const backendUrl = userId ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
+
     if (backendUrl) {
       this.socket = io(backendUrl);
 
+      // ── Inicializar PeerJS ANTES de conectar socket ──
+      this._p2p.init().then((myPeerId) => {
+        // Registrar presencia con el peerId para que el servidor lo almacene
+        const registerPresence = () => {
+          if (this.socket?.connected) {
+            this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
+          } else {
+            this.socket?.once('connect', () => {
+              this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
+            });
+          }
+        };
+        registerPresence();
+
+        // Si ya estaba conectado, actualizar el peerId igualmente
+        if (this.socket?.connected) {
+          this.socket.emit('update-peer-id', { peerJsId: myPeerId });
+        }
+      }).catch(err => {
+        console.warn('[P2P] No se pudo inicializar PeerJS:', err);
+      });
+
       this.socket.on('connect', () => {
-        this.socket.emit('join-game', {
-          userId,
-          characterName,
-          mapId: this.mapId,
-          x: this.player.x,
-          y: this.player.y
+        // Si PeerJS ya está listo, registrar presencia ahora
+        if (this._p2p.peerId) {
+          this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: this._p2p.peerId });
+        }
+      });
+
+      // ── PeerJS callbacks ──
+      this._p2p.onPlayerJoined((peerId, peerCharacterName, slot, x, y) => {
+        this._addOtherPlayer({ socketId: peerId, characterName: peerCharacterName, x: x || this.player.x, y: y || this.player.y, slot });
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification(`👥 ${peerCharacterName || slot} se unió al mundo`, '#2ecc71');
+        this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
+      });
+
+      this._p2p.onPlayerLeft((peerId, slot) => {
+        this._removeOtherPlayer(peerId);
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification(`👋 ${slot || 'Jugador'} salió del mundo`, '#e94560');
+        this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
+        // Si éramos guest y el host se fue, limpiar
+        if (!this._isHost && (slot === 'P1' || slot === null)) {
+          this._removeAllOtherPlayers();
+          this._removeLocalPlayerLabel();
+          this._mySlot = null;
+          this.game.events.emit('p2p-state-changed', 'alone', 0);
+        }
+      });
+
+      this._p2p.onDataReceived((fromPeerId, data) => {
+        if (data.type === 'player-moved') {
+          this._moveOtherPlayer({ socketId: fromPeerId, ...data });
+        } else if (data.type === 'player-attacked') {
+          this.drawRemoteAttack(fromPeerId, data);
+        } else if (data.type === 'player-spell') {
+          this.drawRemoteSpell(fromPeerId, data.spellKey, data.origin);
+        } else if (data.type === 'player-weapon') {
+          this._changeOtherPlayerWeapon({ socketId: fromPeerId, weaponKey: data.weaponKey });
+        } else if (data.type === 'player-rolled') {
+          const other = this.otherPlayers.getChildren().find(p => p.socketId === fromPeerId);
+          if (other) {
+            this.tweens.add({ targets: other, angle: 360, duration: 350, onComplete: () => { if (other.active) other.setAngle(0); } });
+          }
+        } else if (data.type === 'host-position') {
+          // Guest recibe posición inicial del host para teletransportarse
+          if (!this._isHost) {
+            this.player.x = data.x + Phaser.Math.Between(-24, 24);
+            this.player.y = data.y + Phaser.Math.Between(-24, 24);
+            this.cameras.main.flash(300, 100, 100, 255);
+          }
+        }
+      });
+
+
+      // ── Eventos de invitación del servidor ──
+
+      // invite-accepted: el servidor nos dice nuestro rol
+      this.socket.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
+        if (role === 'host') {
+          // Somos el host (P1) — PeerJS ya está escuchando, no necesitamos hacer nada más.
+          // Los guests se conectarán ellos solos con nuestro peerId.
+          this._isHost = true;
+          this._mySlot = 'P1';
+          this._p2p.becomeHost();
+          this._showLocalPlayerLabel('P1');
+          const uiScene = this.scene.get(SCENES.UI);
+          if (uiScene?.showNotification) uiScene.showNotification(`🟢 ${guestCharacterName} aceptó. Esperando conexión...`, '#2ecc71');
+          this.game.events.emit('p2p-state-changed', 'P1', this._p2p.connections.size);
+        } else {
+          // Somos un guest — conectarnos al host por PeerJS
+          if (!hostPeerId) {
+            const uiScene = this.scene.get(SCENES.UI);
+            if (uiScene?.showNotification) uiScene.showNotification('Error: el host no tiene PeerJS activo.', '#e94560');
+            return;
+          }
+          this._isHost = false;
+          this._p2p.connectToHost(hostPeerId);
+
+          // Escuchar cuándo PeerJS asigna nuestro slot (viene en el mensaje 'welcome')
+          // El slot se setea en P2PManager en la respuesta 'welcome'
+          // Aquí esperamos a que se asigne
+          const waitForSlot = setInterval(() => {
+            if (this._p2p.mySlot && this._p2p.mySlot !== 'P1') {
+              clearInterval(waitForSlot);
+              this._mySlot = this._p2p.mySlot;
+              this._showLocalPlayerLabel(this._mySlot);
+              this.game.events.emit('p2p-state-changed', this._mySlot, 1);
+            }
+          }, 100);
+
+          // Timeout de 10s
+          setTimeout(() => {
+            clearInterval(waitForSlot);
+            if (!this._mySlot) {
+              this._mySlot = 'P2'; // fallback
+              this._showLocalPlayerLabel('P2');
+            }
+          }, 10000);
+
+          const uiScene = this.scene.get(SCENES.UI);
+          if (uiScene?.showNotification) uiScene.showNotification(`🔵 Conectando al mundo de ${hostCharacterName}...`, '#88aaff');
+        }
+      });
+
+      // Un compañero salió (notificado por el servidor cuando se desconecta)
+      this.socket.on('partner-left', ({ socketId }) => {
+        // El cierre de la conexión PeerJS lo manejará onPlayerLeft automáticamente
+      });
+
+      // Envío de invitación exitoso
+      this.socket.on('invite-sent', ({ toEmail }) => {
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification(`📨 Invitación enviada a ${toEmail}`, '#ffd700');
+      });
+
+      this.socket.on('invite-error', (msg) => {
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification(msg, '#e94560');
+        this.game.events.emit('invite-error', msg);
+      });
+
+      this.socket.on('invite-declined', ({ guestEmail }) => {
+        const uiScene = this.scene.get(SCENES.UI);
+        if (uiScene?.showNotification) uiScene.showNotification(`❌ ${guestEmail} rechazó la invitación.`, '#e94560');
+      });
+
+      this.socket.on('invite-received', (inviteData) => {
+        this.game.events.emit('invite-received', inviteData);
+      });
+
+      // ── Handlers de eventos desde main.js / UI ──
+
+      this._onInviteAccept = ({ inviteId }) => {
+        if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: true });
+      };
+      this._onInviteDecline = ({ inviteId }) => {
+        if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: false });
+      };
+      this._onSendInvite = (toEmail) => {
+        if (this.socket?.connected) this.socket.emit('send-invite', { toEmail });
+      };
+      this._onLeaveWorld = () => {
+        if (this.socket?.connected) this.socket.emit('leave-world');
+        this._p2p.close();
+        // Reinicializar peer para seguir jugando solo
+        this._p2p.init().then(peerId => {
+          if (this.socket?.connected) this.socket.emit('update-peer-id', { peerJsId: peerId });
         });
-      });
-
-      this.socket.on('current-players', (players) => {
-        players.forEach(p => this._addOtherPlayer(p));
-      });
-
-      this.socket.on('player-joined', (player) => {
-        this._addOtherPlayer(player);
-      });
-
-      this.socket.on('player-moved', (movementData) => {
-        this._moveOtherPlayer(movementData);
-      });
-
-      this.socket.on('player-switched-weapon', (data) => {
-        this._changeOtherPlayerWeapon(data);
-      });
-
-      this.socket.on('player-attacked', (data) => {
-        this.drawRemoteAttack(data.socketId, data.attackData);
-      });
-
-      this.socket.on('player-cast-spell', (data) => {
-        this.drawRemoteSpell(data.socketId, data.spellKey, data.origin);
-      });
-
-      this.socket.on('player-rolled', (data) => {
-        const other = this.otherPlayers.getChildren().find(p => p.socketId === data.socketId);
-        if (other) {
-          this.tweens.add({
-            targets: other,
-            angle: 360,
-            duration: 350,
-            onComplete: () => { if (other.active) other.setAngle(0); }
-          });
-        }
-      });
-
-      this.socket.on('player-left', ({ socketId }) => {
-        this._removeOtherPlayer(socketId);
-      });
-
-      this.socket.on('party-updated', (party) => {
-        this.game.events.emit('party-updated', party);
-      });
-
-      this.socket.on('party-left', () => {
-        this.game.events.emit('party-left');
-      });
-
-      this.socket.on('party-error', (msg) => {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          uiScene.showNotification(msg, '#e94560');
-        }
-      });
-
-      this.socket.on('party-enemy-killed', ({ enemyName, killerName }) => {
-        this.questSystem.trackKill(enemyName);
-        this.dailyMissions.trackKill(enemyName, this.mapId);
-        this._syncQuestsUI();
-
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          uiScene.showNotification(`⚔️ ${killerName} derrotó a ${enemyName} (Misión +1)`, '#2ecc71');
-        }
-      });
-
-      this._onPartyCreate = (partyName) => {
-        if (this.socket && this.socket.connected) {
-          this.socket.emit('create-party', { partyName });
-        }
-      };
-      this._onPartyJoin = (partyName) => {
-        if (this.socket && this.socket.connected) {
-          this.socket.emit('join-party', { partyName });
-        }
-      };
-      this._onPartyLeave = () => {
-        if (this.socket && this.socket.connected) {
-          this.socket.emit('leave-party');
-        }
+        this._removeAllOtherPlayers();
+        this._removeLocalPlayerLabel();
+        this._isHost = false;
+        this._mySlot = null;
+        this.game.events.emit('p2p-state-changed', 'alone', 0);
       };
 
-      this.game.events.on('party-create', this._onPartyCreate);
-      this.game.events.on('party-join', this._onPartyJoin);
-      this.game.events.on('party-leave', this._onPartyLeave);
+      this.game.events.on('invite-accept', this._onInviteAccept);
+      this.game.events.on('invite-decline', this._onInviteDecline);
+      this.game.events.on('send-invite', this._onSendInvite);
+      this.game.events.on('leave-world', this._onLeaveWorld);
     }
 
     // Clean up event listener when scene shuts down
@@ -551,14 +645,15 @@ export default class WorldScene extends Phaser.Scene {
       this.game.events.off('equip-accessory');
       this.game.events.off('unequip-accessory');
       this.game.events.off('equip-spell');
-      if (this._onPartyCreate) this.game.events.off('party-create', this._onPartyCreate);
-      if (this._onPartyJoin) this.game.events.off('party-join', this._onPartyJoin);
-      if (this._onPartyLeave) this.game.events.off('party-leave', this._onPartyLeave);
-      if (this.socket) {
-        this.socket.disconnect();
-      }
+      if (this._onInviteAccept) this.game.events.off('invite-accept', this._onInviteAccept);
+      if (this._onInviteDecline) this.game.events.off('invite-decline', this._onInviteDecline);
+      if (this._onSendInvite) this.game.events.off('send-invite', this._onSendInvite);
+      if (this._onLeaveWorld) this.game.events.off('leave-world', this._onLeaveWorld);
+      if (this._p2p) this._p2p.close();
+      if (this.socket) this.socket.disconnect();
     });
   }
+
 
   async _onEnemyDied(enemy) {
     const uiScene = this.scene.get(SCENES.UI);
@@ -775,17 +870,24 @@ export default class WorldScene extends Phaser.Scene {
     this._drawComboIndicator();
     this._drawTrajectoryLine();
 
-    // Sincronizar posición por sockets (~15 Hz)
+    // Actualizar posición de la etiqueta del jugador local (P1/P2/P3/P4)
+    if (this._localPlayerLabel && this.player) {
+      this._localPlayerLabel.x = this.player.x;
+      this._localPlayerLabel.y = this.player.y - 26;
+    }
+
+    // Sincronizar posición vía P2P (~15 Hz)
     const now = this.time.now;
-    if (!this._lastSocketPosSentAt || now - this._lastSocketPosSentAt > 66) {
+    if (!this._lastP2PPosSentAt || now - this._lastP2PPosSentAt > 66) {
       const currentAnim = this.player.anims.currentAnim ? this.player.anims.currentAnim.key : 'idle';
       const hasMoved = this.player.x !== this._lastSentX ||
                        this.player.y !== this._lastSentY ||
                        this.player.facing !== this._lastSentFacing ||
                        currentAnim !== this._lastSentAnim;
-      
-      if (hasMoved && this.socket && this.socket.connected) {
-        this.socket.emit('player-moved', {
+
+      if (hasMoved && this._p2p && this._p2p.isConnected()) {
+        this._p2p.sendData({
+          type: 'player-moved',
           x: this.player.x,
           y: this.player.y,
           facing: this.player.facing,
@@ -795,10 +897,14 @@ export default class WorldScene extends Phaser.Scene {
         this._lastSentY = this.player.y;
         this._lastSentFacing = this.player.facing;
         this._lastSentAnim = currentAnim;
-        this._lastSocketPosSentAt = now;
+        this._lastP2PPosSentAt = now;
+
+        // Si somos host, también enviar nuestra posición al guest recién conectado
+        // (host-position solo se envía cuando se une un nuevo guest — ver _addOtherPlayer callback)
       }
     }
   }
+
 
   // ========================================================================
   //  COMBAT & SPELLS
@@ -815,8 +921,9 @@ export default class WorldScene extends Phaser.Scene {
     this._lastAttackSignature = attackSig;
     this._lastAttackHandledAt = now;
 
-    if (this.socket && this.socket.connected) {
-      this.socket.emit('player-attacked', {
+    if (this._p2p && this._p2p.isConnected()) {
+      this._p2p.sendData({
+        type: 'player-attacked',
         weapon: { key: weapon.key },
         dir,
         origin,
@@ -1113,8 +1220,8 @@ export default class WorldScene extends Phaser.Scene {
     const { spell, origin } = data;
     const uiScene = this.scene.get(SCENES.UI);
 
-    if (this.socket && this.socket.connected) {
-      this.socket.emit('player-cast-spell', spell);
+    if (this._p2p && this._p2p.isConnected()) {
+      this._p2p.sendData({ type: 'player-spell', spellKey: spell, origin });
     }
 
     if (spell === 'shield') {
@@ -2051,41 +2158,129 @@ export default class WorldScene extends Phaser.Scene {
   // ========================================================================
   //  MULTIPLE JUGADORES (Socket.IO Helpers)
   // ========================================================================
+  // Colores de ropa por slot de jugador
+  static get SLOT_COLORS() {
+    return {
+      P1: null,        // Sin tint (color original)
+      P2: 0x88aaff,   // Azul
+      P3: 0x88ffaa,   // Verde menta
+      P4: 0xffcc88,   // Naranja dorado
+    };
+  }
+
+  static get SLOT_LABEL_COLORS() {
+    return {
+      P1: '#ffd700',   // Dorado
+      P2: '#88aaff',   // Azul
+      P3: '#88ffaa',   // Verde
+      P4: '#ffcc88',   // Naranja
+    };
+  }
+
   _addOtherPlayer(playerInfo) {
     if (!playerInfo || !playerInfo.socketId) return;
-    let exists = false;
-    this.otherPlayers.getChildren().forEach(other => {
-      if (other.socketId === playerInfo.socketId) exists = true;
-    });
-    if (exists) return;
+    // Evitar duplicados
+    const existing = this.otherPlayers.getChildren().find(o => o.socketId === playerInfo.socketId);
+    if (existing) return;
 
-    const other = this.add.sprite(playerInfo.x, playerInfo.y, 'player', 0);
+    const slot = playerInfo.slot || 'P2';
+    const color = WorldScene.SLOT_COLORS[slot];
+    const labelColor = WorldScene.SLOT_LABEL_COLORS[slot] || '#ffffff';
+
+    const other = this.add.sprite(playerInfo.x || 0, playerInfo.y || 0, 'player', 0);
     other.setDepth(10);
     other.socketId = playerInfo.socketId;
+    other.playerSlot = slot;
 
-    other.shadow = this.add.ellipse(playerInfo.x, playerInfo.y + 10, 12, 6, 0x000000, 0.4);
+    // Aplicar tint de color de ropa según slot
+    if (color !== null && color !== undefined) {
+      other.setTint(color);
+    }
+
+    other.shadow = this.add.ellipse(other.x, other.y + 10, 12, 6, 0x000000, 0.4);
     other.shadow.setDepth(9);
 
-    other.nameTag = this.add.text(playerInfo.x, playerInfo.y - 12, playerInfo.characterName, {
+    // Nombre del personaje
+    const displayName = playerInfo.characterName || slot;
+    other.nameTag = this.add.text(other.x, other.y - 14, displayName, {
       fontFamily: 'Inter, sans-serif',
       fontSize: '7px',
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 2
-    }).setOrigin(0.5);
-    other.nameTag.setDepth(20);
+    }).setOrigin(0.5).setDepth(20);
+
+    // Etiqueta de slot (P2, P3, P4) encima del nombre
+    other.slotLabel = this.add.text(other.x, other.y - 23, slot, {
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '8px',
+      fontStyle: 'bold',
+      color: labelColor,
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(21);
 
     this.otherPlayers.add(other);
   }
 
   _removeOtherPlayer(socketId) {
+    const toRemove = [];
     this.otherPlayers.getChildren().forEach(other => {
       if (other.socketId === socketId) {
-        if (other.shadow) other.shadow.destroy();
-        if (other.nameTag) other.nameTag.destroy();
-        other.destroy();
+        toRemove.push(other);
       }
     });
+    toRemove.forEach(other => {
+      if (other.shadow) other.shadow.destroy();
+      if (other.nameTag) other.nameTag.destroy();
+      if (other.slotLabel) other.slotLabel.destroy();
+      other.destroy();
+    });
+  }
+
+  _removeAllOtherPlayers() {
+    this.otherPlayers.getChildren().slice().forEach(other => {
+      if (other.shadow) other.shadow.destroy();
+      if (other.nameTag) other.nameTag.destroy();
+      if (other.slotLabel) other.slotLabel.destroy();
+      other.destroy();
+    });
+    this.otherPlayers.clear(true, true);
+  }
+
+  /** Muestra la etiqueta P1/P2/P3/P4 sobre el jugador local */
+  _showLocalPlayerLabel(slot) {
+    this._removeLocalPlayerLabel();
+    const labelColor = WorldScene.SLOT_LABEL_COLORS[slot] || '#ffd700';
+    this._localPlayerLabel = this.add.text(0, 0, slot, {
+      fontFamily: 'Inter, sans-serif',
+      fontSize: '8px',
+      fontStyle: 'bold',
+      color: labelColor,
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(22);
+
+    // Cambiar la ropa de color de nuestro personaje local para no confundirse
+    const color = WorldScene.SLOT_COLORS[slot];
+    if (this.player) {
+      if (color !== null && color !== undefined) {
+        this.player.setTint(color);
+      } else {
+        this.player.clearTint();
+      }
+    }
+  }
+
+  /** Elimina la etiqueta del jugador local */
+  _removeLocalPlayerLabel() {
+    if (this._localPlayerLabel) {
+      this._localPlayerLabel.destroy();
+      this._localPlayerLabel = null;
+    }
+    if (this.player) {
+      this.player.clearTint();
+    }
   }
 
   _moveOtherPlayer(playerInfo) {
@@ -2093,14 +2288,18 @@ export default class WorldScene extends Phaser.Scene {
       if (other.socketId === playerInfo.socketId) {
         other.x = playerInfo.x;
         other.y = playerInfo.y;
-        
+
         if (other.shadow) {
           other.shadow.x = other.x;
           other.shadow.y = other.y + 10;
         }
         if (other.nameTag) {
           other.nameTag.x = other.x;
-          other.nameTag.y = other.y - 12;
+          other.nameTag.y = other.y - 14;
+        }
+        if (other.slotLabel) {
+          other.slotLabel.x = other.x;
+          other.slotLabel.y = other.y - 23;
         }
 
         if (playerInfo.anim && playerInfo.anim !== 'idle') {
@@ -2108,10 +2307,10 @@ export default class WorldScene extends Phaser.Scene {
         } else {
           other.anims.stop();
           switch (playerInfo.facing) {
-            case 'down': other.setFrame(0); break;
-            case 'left': other.setFrame(3); break;
+            case 'down':  other.setFrame(0); break;
+            case 'left':  other.setFrame(3); break;
             case 'right': other.setFrame(6); break;
-            case 'up': other.setFrame(9); break;
+            case 'up':    other.setFrame(9); break;
           }
         }
       }

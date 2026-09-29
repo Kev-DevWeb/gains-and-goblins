@@ -55,7 +55,7 @@
         <button class="hero-tab active" data-tab="hero-stats" style="flex: 1; padding: 6px; font-family: var(--font-title); background: rgba(255,255,255,0.05); color: var(--clr-gold); border: 1px solid var(--ui-border); cursor: pointer; border-radius: 4px;">📊 Atributos</button>
         <button class="hero-tab" data-tab="hero-inventory" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">🎒 Inventario</button>
         <button class="hero-tab" data-tab="hero-spells" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">✨ Hechizos</button>
-        <button class="hero-tab" data-tab="hero-party" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">👥 Grupo</button>
+        <button class="hero-tab" data-tab="hero-party" style="flex: 1; padding: 6px; font-family: var(--font-title); background: none; color: var(--ui-text-dim); border: 1px solid transparent; cursor: pointer; border-radius: 4px;">👥 Mundo</button>
       </div>
 
       <!-- Tab 1: Stats & Point Allocation -->
@@ -120,31 +120,28 @@
         </div>
       </div>
 
-      <!-- Tab 4: Party System -->
+      <!-- Tab 4: Party System / Peer-to-Peer World -->
       <div id="tab-hero-party" class="hero-tab-content hidden">
         <div style="font-size: 0.8rem; color: var(--ui-text-body); margin-bottom: 8px; line-height: 1.3;">
-          Crea o únete a un grupo temporal en memoria para compartir créditos de misiones en tiempo real.
+          Invita a tus amigos a tu mundo escribiendo su correo electrónico. Jugarán en cooperativo peer-to-peer (máx. 4).
         </div>
         
-        <!-- Join / Create Forms -->
+        <!-- Invite Form -->
         <div id="party-setup-section" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;">
-          <input type="text" id="party-name-input" placeholder="Nombre del Grupo" style="padding: 8px; border: 1px solid var(--ui-border); border-radius: 4px; background: rgba(0,0,0,0.4); color: #fff; font-family: var(--font-body); font-size: 0.85rem;" />
-          <div style="display: flex; gap: 8px;">
-            <button id="btn-party-create" class="inv-filter" style="flex: 1; padding: 8px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05); color: #ccc;">Crear Grupo</button>
-            <button id="btn-party-join" class="inv-filter" style="flex: 1; padding: 8px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,255,255,0.05); color: #ccc;">Unirse</button>
-          </div>
+          <input type="email" id="party-name-input" placeholder="Correo del Amigo (ej. amigo@mail.com)" style="padding: 8px; border: 1px solid var(--ui-border); border-radius: 4px; background: rgba(0,0,0,0.4); color: #fff; font-family: var(--font-body); font-size: 0.85rem;" />
+          <button id="btn-party-create" class="inv-filter" style="width: 100%; padding: 8px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid var(--ui-border); background: rgba(255,215,0,0.15); color: var(--clr-gold);">Enviar Invitación</button>
         </div>
 
-        <!-- Active Party Info -->
-        <div id="party-active-section" class="hidden" style="border: 1px solid var(--ui-border); border-radius: 6px; padding: 10px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 8px;">
+        <!-- Active Session Info -->
+        <div id="party-active-section" style="border: 1px solid var(--ui-border); border-radius: 6px; padding: 10px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 8px;">
           <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,215,0,0.2); padding-bottom: 6px;">
-            <div class="gold-text medieval-text" style="font-size: 0.95rem;">Grupo: <span id="party-current-name" style="color:#fff;">-</span></div>
-            <button id="btn-party-leave" style="padding: 4px 10px; border: 1px solid #ff4d4d; background: rgba(255,77,77,0.15); color: #ff4d4d; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-family: var(--font-title);">Salir</button>
+            <div class="gold-text medieval-text" style="font-size: 0.95rem;">Estado: <span id="party-current-name" style="color:#2ecc71;">Solo</span></div>
+            <button id="btn-party-leave" class="hidden" style="padding: 4px 10px; border: 1px solid #ff4d4d; background: rgba(255,77,77,0.15); color: #ff4d4d; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-family: var(--font-title);">Salir del Mundo</button>
           </div>
           <div>
-            <div class="gold-text medieval-text" style="font-size: 0.8rem; margin-bottom: 4px;">Miembros del Grupo:</div>
+            <div class="gold-text medieval-text" style="font-size: 0.8rem; margin-bottom: 4px;">Jugadores en el Mundo:</div>
             <div id="party-members-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto;">
-              <!-- Members list will be loaded here -->
+              <!-- Connected players list will be loaded here -->
             </div>
           </div>
         </div>
@@ -316,6 +313,20 @@
       </form>
 
       <div id="auth-error-msg" class="auth-error"></div>
+    </div>
+  </div>
+
+  <!-- P2P Invitation Modal -->
+  <div id="p2p-invite-modal" class="modal-overlay hidden" style="background: rgba(0,0,0,0.6); z-index: 10000; display: none;">
+    <div class="modal-content glass-panel" style="max-width: 320px; text-align: center; padding: 20px; border: 1px solid var(--clr-gold);">
+      <h3 class="medieval-text gold-text" style="font-size: 1.2rem; margin-bottom: 10px;">¡Invitación de Juego!</h3>
+      <p style="font-size: 0.85rem; color: var(--ui-text-body); margin-bottom: 15px; line-height: 1.4;">
+        <span id="p2p-invite-host-name" style="font-weight: bold; color: #fff;">Host</span> (<span id="p2p-invite-host-email" style="color: var(--clr-gold);">email</span>) te invita a unirte a su mundo.
+      </p>
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <button id="btn-p2p-accept" class="inv-filter" style="padding: 8px 16px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid #2ecc71; background: rgba(46,204,113,0.2); color: #fff;">Aceptar</button>
+        <button id="btn-p2p-decline" class="inv-filter" style="padding: 8px 16px; font-family: var(--font-title); font-size: 0.85rem; border-radius: 4px; cursor: pointer; border: 1px solid #ff4d4d; background: rgba(255,77,77,0.2); color: #fff;">Rechazar</button>
+      </div>
     </div>
   </div>
 
