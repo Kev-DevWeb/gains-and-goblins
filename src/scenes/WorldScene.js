@@ -35,7 +35,6 @@ export default class WorldScene extends Phaser.Scene {
     this.mapLayer = map.createLayer(0, tileset, 0, 0);
     this.mapLayer.setCollision(SOLID_TILES);
 
-    // Load Transitions
     this.transitions = getTransitions(this.mapId);
 
     // ── Player ──
@@ -43,7 +42,6 @@ export default class WorldScene extends Phaser.Scene {
     Player.createAnimations(this);
     this.player = new Player(this, spawnTile.x * TILE_SIZE, spawnTile.y * TILE_SIZE);
 
-    // Load save data if it exists
     const saveData = SaveSystem.load();
     if (saveData) {
       this.player.loadSaveData(saveData);
@@ -123,7 +121,6 @@ export default class WorldScene extends Phaser.Scene {
     this.shopSystem = new ShopSystem(this.game, this.dialogueSystem);
     this.dailyMissions = new DailyMissionSystem(this.game);
 
-    // Track map visit for daily missions
     this.dailyMissions.trackVisit(this.mapId);
 
     // ── NPCs ──
@@ -402,7 +399,6 @@ export default class WorldScene extends Phaser.Scene {
         this.player.maxHp = character.resistance * 10;
         this.player.maxMana = character.maxMana;
         
-        // Emit events to update HUD UI
         this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
         this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
         this.game.events.emit('update-stats', this.player.stats);
@@ -858,12 +854,10 @@ export default class WorldScene extends Phaser.Scene {
       });
     }
 
-    // Update NPCs
     this.npcsGroup.getChildren().forEach(npc => {
       if (npc.active) npc.update();
     });
 
-    // Check for nearby interactables and show prompt
     this._updateInteractionPrompt();
 
     // Draw combat visual helpers
@@ -1296,7 +1290,6 @@ export default class WorldScene extends Phaser.Scene {
           this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
         }
         
-        // Heal 25 HP
         this.player.hp = Math.min(this.player.hp + 25, this.player.maxHp);
         this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
         
@@ -1376,7 +1369,11 @@ export default class WorldScene extends Phaser.Scene {
     if (!spawns) {
       // Generate fresh positions and persist them
       spawns = getChestSpawns(this.mapId, this._mapData, count);
-      try { localStorage.setItem(posKey, JSON.stringify(spawns)); } catch (e) {}
+      try {
+        localStorage.setItem(posKey, JSON.stringify(spawns));
+      } catch (e) {
+        console.warn('[Chests] Failed to save chest positions:', e);
+      }
     }
 
     this._chestPositions = [];
@@ -1518,7 +1515,6 @@ export default class WorldScene extends Phaser.Scene {
     this.player.body.setVelocity(0);
     this.dialogueSystem.show(npc.npcConfig.name, lines);
 
-    // Apply moral penalty
     this.player.addMoral(-10);
 
     // Dark screen flash
@@ -1815,7 +1811,6 @@ export default class WorldScene extends Phaser.Scene {
         this.player.vitality -= 20;
         this.player.gainBranchXP(branchKey, 50);
 
-        // Notify
         this.game.events.emit('update-vitality', this.player.vitality);
         if (uiScene && uiScene.showNotification) {
           uiScene.showNotification(`¡${activityName} completado! -20 Vitalidad`, '#2ecc71');

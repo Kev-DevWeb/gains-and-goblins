@@ -443,7 +443,6 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
           }
         });
         
-        // Notify scene
         this.scene.events.emit('enemy-died', this);
         this.destroy();
       }

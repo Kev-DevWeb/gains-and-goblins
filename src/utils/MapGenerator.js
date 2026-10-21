@@ -252,7 +252,6 @@ function _generateDungeon(width, height) {
   // Boss Room (bottom center/right)
   carve(30, 32, 20, 10);
 
-  // Add some lava pools
   const addLava = (sx, sy, w, h) => {
     for (let y = sy; y < sy + h; y++) {
       for (let x = sx; x < sx + w; x++) {

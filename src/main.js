@@ -122,7 +122,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="act-reward">+${activity.xpReward} XP (${activity.branch})</div>
     `;
     btn.onclick = () => {
-      // Emit to Phaser
       if (game) game.events.emit('activity-logged', activity.id);
       modal.classList.add('hidden');
     };

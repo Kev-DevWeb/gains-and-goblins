@@ -49,14 +49,6 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// Lightweight origin logger to help debug CORS issues in production logs
-app.use((req, res, next) => {
-  if (req.headers && req.headers.origin) {
-    console.log('[CORS] origin=', req.headers.origin, 'path=', req.path);
-  }
-  next();
-});
-
 app.use(cors(corsOptions));
 app.use(express.json());
 
@@ -231,7 +223,6 @@ app.post('/api/character/sync', async (req, res) => {
       });
     }
 
-    // Check inactivity and decay
     character = await checkInactivityAndDecay(character.id);
 
     // Enforce Balanced Growth (Level requirements check)
@@ -281,7 +272,6 @@ app.post('/api/character/sync', async (req, res) => {
       }
     }
 
-    // Update character state in DB
     const updateData = {
       xp: computedXp,
       moral: moral !== undefined ? moral : character.moral,
@@ -595,7 +585,6 @@ app.post('/api/character/open-chest', async (req, res) => {
       goldDrop = Math.floor(Math.random() * 71) + 80; // 80-150
     }
 
-    // Set 20 minutes cooldown
     const COOLDOWN_MS = 20 * 60 * 1000;
     chestCooldowns[chestKey] = now + COOLDOWN_MS;
     activitiesToday.chestCooldowns = chestCooldowns;
@@ -924,7 +913,6 @@ app.post('/api/character/fitbit/sync', async (req, res) => {
     // If there is any progress to register, save it to DB
     let updatedCharacter = character;
     if (loggedActivities.length > 0) {
-      // Create Activity entries
       await prisma.activity.createMany({
         data: loggedActivities.map(act => ({
           characterId: character.id,

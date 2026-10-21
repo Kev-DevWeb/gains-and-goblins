@@ -217,7 +217,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
-    // Update shadow position
     this.shadow.x = this.x;
     this.shadow.y = this.y + 10;
 
@@ -678,7 +677,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       });
     }
 
-    // Update UI
     this.scene.game.events.emit('update-health', this.hp, this.maxHp);
     this.scene.game.events.emit('update-mana', this.mana, this.maxMana);
     this.scene.game.events.emit('player-respawned');
