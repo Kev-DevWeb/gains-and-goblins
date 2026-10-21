@@ -5,6 +5,8 @@ import { PrismaClient } from '@prisma/client';
 import { Server } from 'socket.io';
 import http from 'http';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -54,6 +56,37 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
+
+// ── AUTH ────────────────────────────────────────────────────────
+// Clients prove who they are with a signed token instead of sending a raw userId.
+
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  JWT_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[Auth] JWT_SECRET no está configurado: se usa uno temporal y las sesiones se cerrarán al reiniciar el servidor.');
+}
+
+function signToken(userId, expiresIn = '30d') {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn });
+}
+
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET).userId;
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const userId = verifyToken(header.replace(/^Bearer /, ''));
+  if (!userId) {
+    return res.status(401).json({ error: 'Sesión inválida o expirada. Inicia sesión de nuevo.' });
+  }
+  req.userId = userId;
+  next();
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'gains-and-goblins-api' });
@@ -120,7 +153,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
 
-    res.json({ message: 'Registro exitoso.', userId: user.id, character: user.character });
+    res.json({ message: 'Registro exitoso.', userId: user.id, token: signToken(user.id), character: user.character });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al registrar usuario.' });
@@ -151,7 +184,7 @@ app.post('/api/auth/login', async (req, res) => {
       ({ character, weeklyDecayApplied: decayApplied } = await checkInactivityAndDecay(character.id));
     }
 
-    res.json({ message: 'Login exitoso.', userId: user.id, character, decayApplied });
+    res.json({ message: 'Login exitoso.', userId: user.id, token: signToken(user.id), character, decayApplied });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al iniciar sesión.' });
@@ -161,8 +194,11 @@ app.post('/api/auth/login', async (req, res) => {
 // ── CHARACTER & SYNC ENDPOINTS ───────────────────────────────
 
 // Fetch character details
-app.get('/api/character/:userId', async (req, res) => {
+app.get('/api/character/:userId', requireAuth, async (req, res) => {
   const { userId } = req.params;
+  if (userId !== req.userId) {
+    return res.status(403).json({ error: 'No puedes ver este personaje.' });
+  }
   try {
     let character = await prisma.character.findUnique({
       where: { userId }
@@ -182,8 +218,9 @@ app.get('/api/character/:userId', async (req, res) => {
 });
 
 // Sync/Save character state and log new activities (stats & branch points allocation only)
-app.post('/api/character/sync', async (req, res) => {
-  const { userId, xp, moral, stats, branchPoints, activitiesToday, newActivityLogged } = req.body;
+app.post('/api/character/sync', requireAuth, async (req, res) => {
+  const { xp, moral, stats, branchPoints, activitiesToday, newActivityLogged } = req.body;
+  const { userId } = req;
 
   try {
     let character = await prisma.character.findUnique({
@@ -455,8 +492,9 @@ async function checkInactivityAndDecay(characterId) {
 
 // ── SECURE SERVER-AUTHORITATIVE ENDPOINTS ─────────────────────
 
-app.post('/api/character/enemy-killed', async (req, res) => {
-  const { userId, enemyName } = req.body;
+app.post('/api/character/enemy-killed', requireAuth, async (req, res) => {
+  const { enemyName } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -532,8 +570,9 @@ app.post('/api/character/enemy-killed', async (req, res) => {
   }
 });
 
-app.post('/api/character/open-chest', async (req, res) => {
-  const { userId, mapId, x, y } = req.body;
+app.post('/api/character/open-chest', requireAuth, async (req, res) => {
+  const { mapId, x, y } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -587,8 +626,9 @@ const SHOP_ITEMS = {
   potion_mp: { name: 'Café Cargado', icon: '☕', type: 'consumable', price: 25 },
 };
 
-app.post('/api/character/buy-item', async (req, res) => {
-  const { userId, itemId } = req.body;
+app.post('/api/character/buy-item', requireAuth, async (req, res) => {
+  const { itemId } = req.body;
+  const { userId } = req;
   const item = SHOP_ITEMS[itemId];
   if (!item) {
     return res.status(400).json({ error: 'Producto no disponible.' });
@@ -625,8 +665,9 @@ app.post('/api/character/buy-item', async (req, res) => {
   }
 });
 
-app.post('/api/character/consume-item', async (req, res) => {
-  const { userId, itemId } = req.body;
+app.post('/api/character/consume-item', requireAuth, async (req, res) => {
+  const { itemId } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -661,9 +702,10 @@ app.post('/api/character/consume-item', async (req, res) => {
 
 // Redirect to Fitbit Authorization
 app.get('/api/auth/fitbit', (req, res) => {
-  const { userId } = req.query;
+  // This is a browser navigation, so the token comes in the query string instead of a header
+  const userId = verifyToken(req.query.token);
   if (!userId) {
-    return res.status(400).send('userId is required');
+    return res.status(401).send('Sesión inválida. Inicia sesión de nuevo.');
   }
 
   const clientId = process.env.FITBIT_CLIENT_ID;
@@ -673,16 +715,18 @@ app.get('/api/auth/fitbit', (req, res) => {
     return res.status(500).send('Fitbit integration is not configured on the server.');
   }
 
-  // Passing the userId in the state parameter
-  const authorizeUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=activity%20heartrate%20profile%20weight&state=${userId}&expires_in=31536000`;
+  // Signed state so the callback cannot be forged to link Fitbit to another account
+  const state = signToken(userId, '10m');
+  const authorizeUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=activity%20heartrate%20profile%20weight&state=${state}&expires_in=31536000`;
   
   res.redirect(authorizeUrl);
 });
 
 // Callback from Fitbit
 app.get('/api/auth/fitbit/callback', async (req, res) => {
-  const { code, state: userId } = req.query;
-  
+  const { code, state } = req.query;
+  const userId = verifyToken(state);
+
   if (!code || !userId) {
     return res.status(400).send('Faltan parámetros OAuth.');
   }
@@ -782,12 +826,8 @@ async function refreshFitbitToken(character) {
 }
 
 // Fitbit Exercise Sync Endpoint
-app.post('/api/character/fitbit/sync', async (req, res) => {
-  const { userId } = req.body;
-  
-  if (!userId) {
-    return res.status(400).json({ error: 'userId es requerido.' });
-  }
+app.post('/api/character/fitbit/sync', requireAuth, async (req, res) => {
+  const { userId } = req;
 
   try {
     let character = await prisma.character.findUnique({
@@ -968,9 +1008,13 @@ io.on('connection', (socket) => {
 
   // ── PRESENCE ──────────────────────────────────────────────────
   // peerJsId = el ID de PeerJS del cliente (para que los guests puedan conectarse directamente)
-  socket.on('user-online', ({ userId, email, characterName, peerJsId }) => {
+  socket.on('user-online', async ({ token, characterName, peerJsId }) => {
+    const userId = verifyToken(token);
+    const user = userId && await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+    if (!user) return;
+
     socket.userId = userId;
-    socket.userEmail = email ? email.toLowerCase().trim() : '';
+    socket.userEmail = user.email.toLowerCase().trim();
     socket.characterName = characterName;
     socket.peerJsId = peerJsId || null;
     socket.partnerIds = socket.partnerIds || [];

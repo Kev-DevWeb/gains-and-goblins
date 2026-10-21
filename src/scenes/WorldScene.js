@@ -437,7 +437,6 @@ export default class WorldScene extends Phaser.Scene {
 
     const userId = SaveSystem.getUserId();
     const characterName = saveData?.name || this.player.name || 'Héroe';
-    const userEmail = saveData?.email || '';
     const backendUrl = userId ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
 
     if (!backendUrl) return;
@@ -449,10 +448,10 @@ export default class WorldScene extends Phaser.Scene {
       // Registrar presencia con el peerId para que el servidor lo almacene
       const registerPresence = () => {
         if (this.socket?.connected) {
-          this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
+          this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: myPeerId });
         } else {
           this.socket?.once('connect', () => {
-            this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
+            this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: myPeerId });
           });
         }
       };
@@ -469,7 +468,7 @@ export default class WorldScene extends Phaser.Scene {
     this.socket.on('connect', () => {
       // Si PeerJS ya está listo, registrar presencia ahora
       if (this._p2p.peerId) {
-        this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: this._p2p.peerId });
+        this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: this._p2p.peerId });
       }
     });
 

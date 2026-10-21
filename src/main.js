@@ -163,13 +163,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connectBtn = document.getElementById('btn-fitbit-connect');
   if (connectBtn) {
     connectBtn.onclick = () => {
-      const uId = SaveSystem.getUserId();
-      if (!uId) {
+      const token = SaveSystem.getToken();
+      if (!token) {
         alert('Debes iniciar sesión primero.');
         return;
       }
       const backendUrl = SaveSystem.getBackendUrl();
-      window.location.href = `${backendUrl}/auth/fitbit?userId=${uId}`;
+      window.location.href = `${backendUrl}/auth/fitbit?token=${encodeURIComponent(token)}`;
     };
   }
 

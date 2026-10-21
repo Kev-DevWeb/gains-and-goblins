@@ -27,7 +27,7 @@ A continuación se detalla la comparativa entre lo que el documento de diseño [
 | **Afinidad Orgánica** | **SÍ (Local)** | [Player.js](../src/entities/Player.js) | Registra actividades locales y otorga un +15% de daño si usas la rama dominante. **Diferencia:** En el código se calcula por mes calendario, mientras que el plan v2 pedía ventana deslizante de 30 días. |
 | **Evadir/Esquivar** | **SÍ** | [Player.js](../src/entities/Player.js) | Voltereta táctica presionando `SHIFT` con invulnerabilidad temporal y efecto visual de partículas de polvo. |
 | **Esquema de Base de Datos** | **SÍ** | [schema.prisma](../server/prisma/schema.prisma) | PostgreSQL en Neon con Prisma. Modelos `User`, `Character` y `Activity`. |
-| **Servidor / Backend API** | **SÍ (Parcial)** | [server.js](../server/server.js) | Express con registro, login y endpoints autoritativos (sincronizar personaje, enemigos, cofres, compras). **Falta:** JWT y cifrado de contraseñas (hoy se guardan en texto plano). |
+| **Servidor / Backend API** | **SÍ** | [server.js](../server/server.js) | Express con registro, login y endpoints autoritativos (sincronizar personaje, enemigos, cofres, compras). Contraseñas cifradas con bcrypt y peticiones autenticadas con JWT. |
 | **Red Multijugador (Sockets)** | **SÍ (Parcial)** | [server.js](../server/server.js), [P2PManager.js](../src/utils/P2PManager.js) | Socket.IO para jugadores en línea e invitaciones a grupo; PeerJS para la partida compartida. **Falta:** chat global. |
 | **Google Fit / Fitbit API** | **SÍ (Fitbit)** | [server.js](../server/server.js), [main.js](../src/main.js) | OAuth 2.0 con Fitbit (Google Health) y sincronización de ejercicios. Google Fit no está integrado. |
 | **Sistema de Moral** | **Parcial** | [DialogueSystem.js](../src/ui/DialogueSystem.js), [WorldScene.js](../src/scenes/WorldScene.js) | Existe el valor `moral` y se reduce al empujar NPCs. **Falta:** cambios de apariencia por rachas (brillo a los 7 días, sombras por abandono). |
@@ -60,8 +60,7 @@ A continuación se detalla la comparativa entre lo que el documento de diseño [
 
 El servidor, la base de datos, los Sockets y Fitbit ya existen. Lo que falta, en orden de prioridad:
 
-1. **Seguridad del servidor:** cifrar contraseñas con **bcrypt** y proteger los endpoints con **JWT** (hoy cualquiera que conozca un `userId` puede modificar ese personaje).
-2. **Multijugador:** añadir chat global y sincronizar ataques y hechizos entre jugadores en la Arena.
-3. **Sistema de Moralidad y Consistencia:**
+1. **Multijugador:** añadir chat global y sincronizar ataques y hechizos entre jugadores en la Arena.
+2. **Sistema de Moralidad y Consistencia:**
    * Calcular rachas de hábitos con el historial de `Activity`.
    * Aplicar en `BootScene.js` el brillo (rachas positivas) o el sombreado (abandono de hábitos).
