@@ -181,35 +181,8 @@ app.post('/api/character/sync', async (req, res) => {
       return res.status(404).json({ error: 'Personaje no encontrado.' });
     }
 
-    // Validate stat allocation to prevent hacking
-    if (stats && branchPoints) {
-      const branches = ['strength', 'dexterity', 'intelligence', 'willpower'];
-      const branchStats = {
-        strength: ['strength', 'resistance'],
-        dexterity: ['dexterity', 'speed'],
-        intelligence: ['intelligence', 'maxMana'],
-        willpower: ['willpower', 'charisma']
-      };
-
-      let isValid = true;
-      for (const bKey of branches) {
-        const oldStatSum = branchStats[bKey].reduce((sum, key) => sum + (character[key] || 5), 0);
-        const oldBp = character.branchPoints[bKey] || 0;
-        const oldTotal = oldStatSum + oldBp;
-
-        const newStatSum = branchStats[bKey].reduce((sum, key) => sum + (stats[key] || 5), 0);
-        const newBp = branchPoints[bKey] || 0;
-        const newTotal = newStatSum + newBp;
-
-        if (newTotal !== oldTotal) {
-          isValid = false;
-          break;
-        }
-      }
-
-      if (!isValid) {
-        return res.status(400).json({ error: 'Asignación de puntos inválida detectada.' });
-      }
+    if (stats && branchPoints && !isValidStatAllocation(character, stats, branchPoints)) {
+      return res.status(400).json({ error: 'Asignación de puntos inválida detectada.' });
     }
 
     // Log activity if client reports a new activity was logged
@@ -225,52 +198,8 @@ app.post('/api/character/sync', async (req, res) => {
 
     character = await checkInactivityAndDecay(character.id);
 
-    // Enforce Balanced Growth (Level requirements check)
-    let computedLevel = character.level;
-    let computedXp = xp !== undefined ? xp : character.xp;
-
-    const currentStats = stats || {
-      strength: character.strength,
-      resistance: character.resistance,
-      dexterity: character.dexterity,
-      speed: character.speed,
-      intelligence: character.intelligence,
-      maxMana: character.maxMana,
-      willpower: character.willpower,
-      charisma: character.charisma
-    };
-
-    // Calculate level up iteratively if they meet conditions
-    let levelCheck = true;
-    let blockedLevelUp = false;
-    
-    while (levelCheck) {
-      const xpNeeded = computedLevel * 50;
-      if (computedXp >= xpNeeded) {
-        const reqValue = 5 + computedLevel;
-        const statsToVerify = [
-          currentStats.strength,
-          currentStats.resistance,
-          currentStats.dexterity,
-          currentStats.speed,
-          currentStats.intelligence,
-          currentStats.maxMana,
-          currentStats.willpower,
-          currentStats.charisma
-        ];
-
-        const isBalanced = statsToVerify.every(val => val >= reqValue);
-
-        if (isBalanced) {
-          computedLevel += 1;
-        } else {
-          blockedLevelUp = true;
-          levelCheck = false;
-        }
-      } else {
-        levelCheck = false;
-      }
-    }
+    const computedXp = xp !== undefined ? xp : character.xp;
+    const { level: computedLevel, blockedLevelUp } = computeLevelUp(character.level, computedXp, stats || pickStats(character));
 
     const updateData = {
       xp: computedXp,
@@ -280,14 +209,7 @@ app.post('/api/character/sync', async (req, res) => {
     };
 
     if (stats) {
-      updateData.strength = stats.strength;
-      updateData.resistance = stats.resistance;
-      updateData.dexterity = stats.dexterity;
-      updateData.speed = stats.speed;
-      updateData.intelligence = stats.intelligence;
-      updateData.maxMana = stats.maxMana;
-      updateData.willpower = stats.willpower;
-      updateData.charisma = stats.charisma;
+      Object.assign(updateData, pickStats(stats));
     }
 
     if (branchPoints) {
@@ -326,6 +248,40 @@ app.post('/api/character/sync', async (req, res) => {
 });
 
 // ── LOGIC HELPERS ────────────────────────────────────────────
+
+const STAT_KEYS = ['strength', 'resistance', 'dexterity', 'speed', 'intelligence', 'maxMana', 'willpower', 'charisma'];
+
+const BRANCH_STATS = {
+  strength: ['strength', 'resistance'],
+  dexterity: ['dexterity', 'speed'],
+  intelligence: ['intelligence', 'maxMana'],
+  willpower: ['willpower', 'charisma']
+};
+
+function pickStats(source) {
+  return Object.fromEntries(STAT_KEYS.map(key => [key, source[key]]));
+}
+
+// Anti-cheat: per branch, stats + unspent points must add up to the same total as before
+function isValidStatAllocation(character, stats, branchPoints) {
+  return Object.entries(BRANCH_STATS).every(([bKey, statKeys]) => {
+    const oldTotal = statKeys.reduce((sum, key) => sum + (character[key] || 5), 0) + (character.branchPoints[bKey] || 0);
+    const newTotal = statKeys.reduce((sum, key) => sum + (stats[key] || 5), 0) + (branchPoints[bKey] || 0);
+    return newTotal === oldTotal;
+  });
+}
+
+// Balanced growth: each level needs level * 50 XP and every stat at 5 + level or more
+function computeLevelUp(level, xp, stats) {
+  while (xp >= level * 50) {
+    const reqValue = 5 + level;
+    if (!STAT_KEYS.every(key => stats[key] >= reqValue)) {
+      return { level, blockedLevelUp: true };
+    }
+    level += 1;
+  }
+  return { level, blockedLevelUp: false };
+}
 
 async function checkInactivityAndDecay(characterId) {
   const character = await prisma.character.findUnique({
@@ -932,50 +888,8 @@ app.post('/api/character/fitbit/sync', async (req, res) => {
       // Add Vitality points! (100 per activity logged)
       newBranchPoints.vitality = Math.min(300, (newBranchPoints.vitality || 100) + loggedActivities.length * 100);
 
-      // Check level up (Balanced Growth requirements check)
-      let computedLevel = character.level;
-      let computedXp = character.xp + xpEarned;
-      let blockedLevelUp = false;
-      let levelCheck = true;
-
-      const currentStats = {
-        strength: character.strength,
-        resistance: character.resistance,
-        dexterity: character.dexterity,
-        speed: character.speed,
-        intelligence: character.intelligence,
-        maxMana: character.maxMana,
-        willpower: character.willpower,
-        charisma: character.charisma
-      };
-
-      while (levelCheck) {
-        const xpNeeded = computedLevel * 50;
-        if (computedXp >= xpNeeded) {
-          const reqValue = 5 + computedLevel;
-          const statsToVerify = [
-            currentStats.strength,
-            currentStats.resistance,
-            currentStats.dexterity,
-            currentStats.speed,
-            currentStats.intelligence,
-            currentStats.maxMana,
-            currentStats.willpower,
-            currentStats.charisma
-          ];
-
-          const isBalanced = statsToVerify.every(val => val >= reqValue);
-
-          if (isBalanced) {
-            computedLevel += 1;
-          } else {
-            blockedLevelUp = true;
-            levelCheck = false;
-          }
-        } else {
-          levelCheck = false;
-        }
-      }
+      const computedXp = character.xp + xpEarned;
+      const { level: computedLevel } = computeLevelUp(character.level, computedXp, pickStats(character));
 
       updatedCharacter = await prisma.character.update({
         where: { id: character.id },
