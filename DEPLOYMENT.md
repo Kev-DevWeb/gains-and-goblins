@@ -29,6 +29,8 @@ Backend on Railway/Render/VPS:
 - `PORT` = hosting platform port or `3001`
 - `FRONTEND_URL` = your public Vercel URL, for example `https://your-project.vercel.app`
 - `DATABASE_URL` = Neon connection string
+- `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET` = credentials from your Fitbit developer app
+- `FITBIT_REDIRECT_URI` = `https://your-backend-domain.example/api/auth/fitbit/callback` (must match the URL registered in the Fitbit app)
 
 ## Recommended flow for testers
 
