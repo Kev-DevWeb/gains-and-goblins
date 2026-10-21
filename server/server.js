@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { Server } from 'socket.io';
 import http from 'http';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
@@ -61,6 +62,20 @@ app.get('/api/health', (_req, res) => {
 // ── AUTH ENDPOINTS ───────────────────────────────────────────
 
 // Register new user and create their default character
+const BCRYPT_ROUNDS = 10;
+
+// Accounts created before hashing still store plain text; hash them on their next login
+async function verifyPassword(user, password) {
+  const isHashed = user.password.startsWith('$2');
+  if (isHashed) return bcrypt.compare(password, user.password);
+  if (user.password !== password) return false;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: await bcrypt.hash(password, BCRYPT_ROUNDS) }
+  });
+  return true;
+}
+
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, name } = req.body;
   if (!email || !password || !name) {
@@ -73,12 +88,10 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'El correo ya está registrado.' });
     }
 
-    // In a real production app we would hash the password using bcrypt.
-    // For local MVP / simplicity, we save it directly (or hash if required).
     const user = await prisma.user.create({
       data: {
         email,
-        password, // Save password directly for easy setup
+        password: await bcrypt.hash(password, BCRYPT_ROUNDS),
         character: {
           create: {
             name,
@@ -127,7 +140,7 @@ app.post('/api/auth/login', async (req, res) => {
       include: { character: true }
     });
 
-    if (!user || user.password !== password) {
+    if (!user || !(await verifyPassword(user, password))) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
 
