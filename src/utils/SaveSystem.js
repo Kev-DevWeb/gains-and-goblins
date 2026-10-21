@@ -7,6 +7,9 @@
 
 const SAVE_KEY = 'gains_goblins_save';
 const USER_ID_KEY = 'gains_goblins_user_id';
+const TOKEN_KEY = 'gains_goblins_token';
+// Set when the server reports a weekly stat decay before the world scene exists
+const PENDING_DECAY_KEY = 'gains_goblins_pending_decay';
 
 function getBackendUrl() {
   const configuredUrl = import.meta.env.VITE_API_URL?.trim();
@@ -30,6 +33,19 @@ export default class SaveSystem {
     return getBackendUrl();
   }
 
+  /**
+   * Returns true once if a weekly stat decay happened while loading, then clears it.
+   */
+  static takePendingDecayNotice() {
+    try {
+      const pending = localStorage.getItem(PENDING_DECAY_KEY) === '1';
+      localStorage.removeItem(PENDING_DECAY_KEY);
+      return pending;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static getUserId() {
     return localStorage.getItem(USER_ID_KEY);
   }
@@ -39,7 +55,16 @@ export default class SaveSystem {
       localStorage.setItem(USER_ID_KEY, id);
     } else {
       localStorage.removeItem(USER_ID_KEY);
+      localStorage.removeItem(TOKEN_KEY);
     }
+  }
+
+  static getToken() {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+
+  static authHeaders() {
+    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getToken()}` };
   }
 
   /**
@@ -61,6 +86,7 @@ export default class SaveSystem {
       }
       
       this.setUserId(data.character.userId);
+      localStorage.setItem(TOKEN_KEY, data.token);
       localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
       return { success: true, character: data.character };
     } catch (err) {
@@ -86,7 +112,9 @@ export default class SaveSystem {
       }
       
       this.setUserId(data.character.userId);
+      localStorage.setItem(TOKEN_KEY, data.token);
       localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      if (data.decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
       return { success: true, character: data.character };
     } catch (err) {
       return { success: false, error: err.message };
@@ -101,17 +129,18 @@ export default class SaveSystem {
     const userId = this.getUserId();
     if (!userId) return null;
     try {
-      const response = await fetch(`${BACKEND_URL}/character/${userId}`);
+      const response = await fetch(`${BACKEND_URL}/character/${userId}`, { headers: this.authHeaders() });
       if (!response.ok) {
-        if (response.status === 444) {
+        if (response.status === 444 || response.status === 401) {
           // Character not found or user deleted
           this.setUserId(null);
           localStorage.removeItem(SAVE_KEY);
         }
         return null;
       }
-      const data = await response.json();
+      const { decayApplied, ...data } = await response.json();
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      if (decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
       return data;
     } catch (err) {
       console.warn('[SaveSystem] Sync failed during load, loading from cache:', err);
@@ -137,7 +166,7 @@ export default class SaveSystem {
       // Asynchronously trigger server sync if user is logged in
       const userId = this.getUserId();
       if (userId) {
-        this.syncServer(userId, playerData, newActivityLogged);
+        this.syncServer(playerData, newActivityLogged);
       }
       return true;
     } catch (e) {
@@ -149,10 +178,9 @@ export default class SaveSystem {
   /**
    * Sync character data with the server.
    */
-  static async syncServer(userId, playerData, newActivityLogged) {
+  static async syncServer(playerData, newActivityLogged) {
     try {
       const payload = {
-        userId,
         xp: playerData.xp,
         gold: playerData.gold,
         moral: playerData.moral,
@@ -165,7 +193,7 @@ export default class SaveSystem {
 
       const response = await fetch(`${BACKEND_URL}/character/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -233,8 +261,8 @@ export default class SaveSystem {
     try {
       const response = await fetch(`${BACKEND_URL}/character/enemy-killed`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, enemyName })
+        headers: this.authHeaders(),
+        body: JSON.stringify({ enemyName })
       });
       if (!response.ok) throw new Error('Error al notificar muerte de enemigo.');
       const data = await response.json();
@@ -256,8 +284,8 @@ export default class SaveSystem {
     try {
       const response = await fetch(`${BACKEND_URL}/character/open-chest`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, mapId, x, y })
+        headers: this.authHeaders(),
+        body: JSON.stringify({ mapId, x, y })
       });
       if (!response.ok) throw new Error('Error al abrir cofre.');
       const data = await response.json();
@@ -273,14 +301,14 @@ export default class SaveSystem {
   /**
    * Securely buy an item.
    */
-  static async buyItem(itemId, price, name, icon, type) {
+  static async buyItem(itemId) {
     const userId = this.getUserId();
     if (!userId) return null;
     try {
       const response = await fetch(`${BACKEND_URL}/character/buy-item`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, itemId, price, name, icon, type })
+        headers: this.authHeaders(),
+        body: JSON.stringify({ itemId })
       });
       if (!response.ok) throw new Error('Error al comprar item.');
       const character = await response.json();
@@ -302,8 +330,8 @@ export default class SaveSystem {
     try {
       const response = await fetch(`${BACKEND_URL}/character/consume-item`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, itemId })
+        headers: this.authHeaders(),
+        body: JSON.stringify({ itemId })
       });
       if (!response.ok) throw new Error('Error al consumir item.');
       const character = await response.json();
@@ -325,8 +353,8 @@ export default class SaveSystem {
     try {
       const response = await fetch(`${BACKEND_URL}/character/fitbit/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
+        headers: this.authHeaders(),
+        body: JSON.stringify({})
       });
       if (!response.ok) {
         const data = await response.json();

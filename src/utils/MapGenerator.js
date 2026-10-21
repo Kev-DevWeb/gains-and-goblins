@@ -29,6 +29,8 @@ function _generateGuild(width, height) {
       }
     }
   }
+  // Estandartes del gremio en el muro superior
+  for (let x = 6; x < width - 1; x += 8) mapData[0][x] = TILES.GUILD_BANNER;
 
   // Helper to draw rectangles
   const fillRect = (startX, startY, w, h, tile) => {
@@ -67,6 +69,8 @@ function _generateGuild(width, height) {
 
   // 5. RECEPCIÓN / TIENDA - Centro Arriba
   fillRect(25, 5, 10, 3, TILES.STONE_PATH); 
+  // Mostrador a ambos lados de la Recepcionista (x=30, y=8), dejando libre el frente para hablarle
+  for (const x of [27, 28, 31, 32]) mapData[8][x] = TILES.RECEPTION_DESK;
 
   // 6. ARENA DE ENTRENAMIENTO - Abajo Derecha
   fillRect(35, 30, 23, 12, TILES.ARENA_FLOOR);
@@ -252,7 +256,6 @@ function _generateDungeon(width, height) {
   // Boss Room (bottom center/right)
   carve(30, 32, 20, 10);
 
-  // Add some lava pools
   const addLava = (sx, sy, w, h) => {
     for (let y = sy; y < sy + h; y++) {
       for (let x = sx; x < sx + w; x++) {

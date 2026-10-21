@@ -122,7 +122,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="act-reward">+${activity.xpReward} XP (${activity.branch})</div>
     `;
     btn.onclick = () => {
-      // Emit to Phaser
       if (game) game.events.emit('activity-logged', activity.id);
       modal.classList.add('hidden');
     };
@@ -164,13 +163,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connectBtn = document.getElementById('btn-fitbit-connect');
   if (connectBtn) {
     connectBtn.onclick = () => {
-      const uId = SaveSystem.getUserId();
-      if (!uId) {
+      const token = SaveSystem.getToken();
+      if (!token) {
         alert('Debes iniciar sesión primero.');
         return;
       }
       const backendUrl = SaveSystem.getBackendUrl();
-      window.location.href = `${backendUrl}/auth/fitbit?userId=${uId}`;
+      window.location.href = `${backendUrl}/auth/fitbit?token=${encodeURIComponent(token)}`;
     };
   }
 

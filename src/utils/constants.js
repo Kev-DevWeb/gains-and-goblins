@@ -167,6 +167,8 @@ export const TILES = {
   LAVA: 26,
   CAVE_ENTRANCE: 27,
   STUDY_TABLE: 28,
+  GUILD_BANNER: 29,
+  RECEPTION_DESK: 30,
 };
 
 // ── Solid Tiles (impassable) ─────────────────────────────────
@@ -185,6 +187,8 @@ export const SOLID_TILES = [
   TILES.DUNGEON_WALL,
   TILES.LAVA,
   TILES.STUDY_TABLE,
+  TILES.GUILD_BANNER,
+  TILES.RECEPTION_DESK,
 ];
 
 // ── Tile Colors (16-bit pixel-art palette) ───────────────────
@@ -207,12 +211,6 @@ export const TILE_COLORS = {
   [TILES.SAND]:         { primary: 0xe8d5b7, secondary: 0xd8c5a7, detail: 0xf0ddc0 },
   [TILES.CHEST]:        { primary: 0x8b6914, secondary: 0xffd700, detail: 0x5a3a1a },
   [TILES.SIGN]:         { primary: 0x8b6914, secondary: 0x5a3a1a, detail: 0xc4a35a },
-  [TILES.GUILD_FLOOR]:  { primary: 0x4a3b2c, secondary: 0x5a4b3c, detail: 0x3a2b1c }, // Polished wood
-  [TILES.GUILD_WALL]:   { primary: 0x2c3e50, secondary: 0x34495e, detail: 0x1a252f }, // Elegant dark stone
-  [TILES.DUMBBELL_RACK]:{ primary: 0x7f8c8d, secondary: 0x95a5a6, detail: 0x2c3e50 }, // Metal and iron weights
-  [TILES.CARDIO_ZONE]:  { primary: 0x8e44ad, secondary: 0x9b59b6, detail: 0x2c3e50 }, // Purple mats/dummies
-  [TILES.BOOKSHELF]:    { primary: 0x5c4033, secondary: 0x3e2723, detail: 0xd4af37 }, // Wood and gold-trimmed books
-  [TILES.MEDITATION_MAT]:{primary: 0x16a085, secondary: 0x1abc9c, detail: 0xf1c40f }, // Teal mats with incense
   [TILES.ARENA_FLOOR]:  { primary: 0xc0392b, secondary: 0xe74c3c, detail: 0x7f8c8d }, // Reddish combat floor
   [TILES.BULLETIN_BOARD]:{ primary: 0x7d4e00, secondary: 0xffd700, detail: 0xe8d5b7 }, // Wooden board with gold notices
   [TILES.DUNGEON_FLOOR]: { primary: 0x2b2b2b, secondary: 0x3b3b3b, detail: 0x1b1b1b }, // Dark stone floor
@@ -230,7 +228,6 @@ export const ENEMIES = {
     damage: 3,
     speed: 40,
     xp: 10,
-    color: 0x4caf50,
     size: 12,
     aggroRange: 80,
     patrolRange: 60,
@@ -242,7 +239,6 @@ export const ENEMIES = {
     damage: 11,
     speed: 25,
     xp: 25,
-    color: 0x7cb342,
     size: 14,
     aggroRange: 100,
     patrolRange: 80,
@@ -254,7 +250,6 @@ export const ENEMIES = {
     damage: 3,
     speed: 75,
     xp: 25,
-    color: 0x8bc34a,
     size: 13,
     aggroRange: 140,
     patrolRange: 80,
@@ -266,7 +261,6 @@ export const ENEMIES = {
     damage: 18,
     speed: 30,
     xp: 30,
-    color: 0x9b59b6,
     size: 13,
     aggroRange: 130,
     patrolRange: 60,
@@ -278,7 +272,6 @@ export const ENEMIES = {
     damage: 9,
     speed: 45,
     xp: 40,
-    color: 0xe0e0e0,
     size: 14,
     aggroRange: 120,
     patrolRange: 70,
@@ -290,7 +283,6 @@ export const ENEMIES = {
     damage: 15,
     speed: 50,
     xp: 300,
-    color: 0xff9900, // Golden/Orange goblin
     size: 24,        // Big boss
     aggroRange: 180,
     patrolRange: 100,

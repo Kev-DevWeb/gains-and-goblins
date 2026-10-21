@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { Server } from 'socket.io';
 import http from 'http';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -49,18 +52,41 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// Lightweight origin logger to help debug CORS issues in production logs
-app.use((req, res, next) => {
-  if (req.headers && req.headers.origin) {
-    console.log('[CORS] origin=', req.headers.origin, 'path=', req.path);
-  }
-  next();
-});
-
 app.use(cors(corsOptions));
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
+
+// ── AUTH ────────────────────────────────────────────────────────
+// Clients prove who they are with a signed token instead of sending a raw userId.
+
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  JWT_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[Auth] JWT_SECRET no está configurado: se usa uno temporal y las sesiones se cerrarán al reiniciar el servidor.');
+}
+
+function signToken(userId, expiresIn = '30d') {
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn });
+}
+
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET).userId;
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const userId = verifyToken(header.replace(/^Bearer /, ''));
+  if (!userId) {
+    return res.status(401).json({ error: 'Sesión inválida o expirada. Inicia sesión de nuevo.' });
+  }
+  req.userId = userId;
+  next();
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'gains-and-goblins-api' });
@@ -69,6 +95,20 @@ app.get('/api/health', (_req, res) => {
 // ── AUTH ENDPOINTS ───────────────────────────────────────────
 
 // Register new user and create their default character
+const BCRYPT_ROUNDS = 10;
+
+// Accounts created before hashing still store plain text; hash them on their next login
+async function verifyPassword(user, password) {
+  const isHashed = user.password.startsWith('$2');
+  if (isHashed) return bcrypt.compare(password, user.password);
+  if (user.password !== password) return false;
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: await bcrypt.hash(password, BCRYPT_ROUNDS) }
+  });
+  return true;
+}
+
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, name } = req.body;
   if (!email || !password || !name) {
@@ -81,12 +121,10 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'El correo ya está registrado.' });
     }
 
-    // In a real production app we would hash the password using bcrypt.
-    // For local MVP / simplicity, we save it directly (or hash if required).
     const user = await prisma.user.create({
       data: {
         email,
-        password, // Save password directly for easy setup
+        password: await bcrypt.hash(password, BCRYPT_ROUNDS),
         character: {
           create: {
             name,
@@ -115,7 +153,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
     });
 
-    res.json({ message: 'Registro exitoso.', userId: user.id, character: user.character });
+    res.json({ message: 'Registro exitoso.', userId: user.id, token: signToken(user.id), character: user.character });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al registrar usuario.' });
@@ -135,17 +173,18 @@ app.post('/api/auth/login', async (req, res) => {
       include: { character: true }
     });
 
-    if (!user || user.password !== password) {
+    if (!user || !(await verifyPassword(user, password))) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
 
     // Perform check for long-term inactivity on login
     let character = user.character;
+    let decayApplied = false;
     if (character) {
-      character = await checkInactivityAndDecay(character.id);
+      ({ character, weeklyDecayApplied: decayApplied } = await checkInactivityAndDecay(character.id));
     }
 
-    res.json({ message: 'Login exitoso.', userId: user.id, character });
+    res.json({ message: 'Login exitoso.', userId: user.id, token: signToken(user.id), character, decayApplied });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al iniciar sesión.' });
@@ -155,8 +194,11 @@ app.post('/api/auth/login', async (req, res) => {
 // ── CHARACTER & SYNC ENDPOINTS ───────────────────────────────
 
 // Fetch character details
-app.get('/api/character/:userId', async (req, res) => {
+app.get('/api/character/:userId', requireAuth, async (req, res) => {
   const { userId } = req.params;
+  if (userId !== req.userId) {
+    return res.status(403).json({ error: 'No puedes ver este personaje.' });
+  }
   try {
     let character = await prisma.character.findUnique({
       where: { userId }
@@ -166,10 +208,9 @@ app.get('/api/character/:userId', async (req, res) => {
       return res.status(444).json({ error: 'Personaje no encontrado.' });
     }
 
-    // Perform check on fetch
-    character = await checkInactivityAndDecay(character.id);
+    const { character: checked, weeklyDecayApplied } = await checkInactivityAndDecay(character.id);
 
-    res.json(character);
+    res.json({ ...checked, decayApplied: weeklyDecayApplied });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al obtener personaje.' });
@@ -177,8 +218,9 @@ app.get('/api/character/:userId', async (req, res) => {
 });
 
 // Sync/Save character state and log new activities (stats & branch points allocation only)
-app.post('/api/character/sync', async (req, res) => {
-  const { userId, xp, moral, stats, branchPoints, activitiesToday, newActivityLogged } = req.body;
+app.post('/api/character/sync', requireAuth, async (req, res) => {
+  const { xp, moral, stats, branchPoints, activitiesToday, newActivityLogged } = req.body;
+  const { userId } = req;
 
   try {
     let character = await prisma.character.findUnique({
@@ -189,35 +231,8 @@ app.post('/api/character/sync', async (req, res) => {
       return res.status(404).json({ error: 'Personaje no encontrado.' });
     }
 
-    // Validate stat allocation to prevent hacking
-    if (stats && branchPoints) {
-      const branches = ['strength', 'dexterity', 'intelligence', 'willpower'];
-      const branchStats = {
-        strength: ['strength', 'resistance'],
-        dexterity: ['dexterity', 'speed'],
-        intelligence: ['intelligence', 'maxMana'],
-        willpower: ['willpower', 'charisma']
-      };
-
-      let isValid = true;
-      for (const bKey of branches) {
-        const oldStatSum = branchStats[bKey].reduce((sum, key) => sum + (character[key] || 5), 0);
-        const oldBp = character.branchPoints[bKey] || 0;
-        const oldTotal = oldStatSum + oldBp;
-
-        const newStatSum = branchStats[bKey].reduce((sum, key) => sum + (stats[key] || 5), 0);
-        const newBp = branchPoints[bKey] || 0;
-        const newTotal = newStatSum + newBp;
-
-        if (newTotal !== oldTotal) {
-          isValid = false;
-          break;
-        }
-      }
-
-      if (!isValid) {
-        return res.status(400).json({ error: 'Asignación de puntos inválida detectada.' });
-      }
+    if (stats && branchPoints && !isValidStatAllocation(character, stats, branchPoints)) {
+      return res.status(400).json({ error: 'Asignación de puntos inválida detectada.' });
     }
 
     // Log activity if client reports a new activity was logged
@@ -231,57 +246,12 @@ app.post('/api/character/sync', async (req, res) => {
       });
     }
 
-    // Check inactivity and decay
-    character = await checkInactivityAndDecay(character.id);
+    const decayCheck = await checkInactivityAndDecay(character.id);
+    character = decayCheck.character;
 
-    // Enforce Balanced Growth (Level requirements check)
-    let computedLevel = character.level;
-    let computedXp = xp !== undefined ? xp : character.xp;
+    const computedXp = xp !== undefined ? xp : character.xp;
+    const { level: computedLevel, blockedLevelUp } = computeLevelUp(character.level, computedXp, stats || pickStats(character));
 
-    const currentStats = stats || {
-      strength: character.strength,
-      resistance: character.resistance,
-      dexterity: character.dexterity,
-      speed: character.speed,
-      intelligence: character.intelligence,
-      maxMana: character.maxMana,
-      willpower: character.willpower,
-      charisma: character.charisma
-    };
-
-    // Calculate level up iteratively if they meet conditions
-    let levelCheck = true;
-    let blockedLevelUp = false;
-    
-    while (levelCheck) {
-      const xpNeeded = computedLevel * 50;
-      if (computedXp >= xpNeeded) {
-        const reqValue = 5 + computedLevel;
-        const statsToVerify = [
-          currentStats.strength,
-          currentStats.resistance,
-          currentStats.dexterity,
-          currentStats.speed,
-          currentStats.intelligence,
-          currentStats.maxMana,
-          currentStats.willpower,
-          currentStats.charisma
-        ];
-
-        const isBalanced = statsToVerify.every(val => val >= reqValue);
-
-        if (isBalanced) {
-          computedLevel += 1;
-        } else {
-          blockedLevelUp = true;
-          levelCheck = false;
-        }
-      } else {
-        levelCheck = false;
-      }
-    }
-
-    // Update character state in DB
     const updateData = {
       xp: computedXp,
       moral: moral !== undefined ? moral : character.moral,
@@ -290,14 +260,7 @@ app.post('/api/character/sync', async (req, res) => {
     };
 
     if (stats) {
-      updateData.strength = stats.strength;
-      updateData.resistance = stats.resistance;
-      updateData.dexterity = stats.dexterity;
-      updateData.speed = stats.speed;
-      updateData.intelligence = stats.intelligence;
-      updateData.maxMana = stats.maxMana;
-      updateData.willpower = stats.willpower;
-      updateData.charisma = stats.charisma;
+      Object.assign(updateData, pickStats(stats));
     }
 
     if (branchPoints) {
@@ -327,7 +290,7 @@ app.post('/api/character/sync', async (req, res) => {
       character: updatedCharacter,
       blockedLevelUp,
       requiredStatValue: 5 + updatedCharacter.level,
-      decayApplied: character.lastDecayAppliedAt.getTime() !== updatedCharacter.lastDecayAppliedAt.getTime() && updatedCharacter.lastDecayAppliedAt > character.lastDecayAppliedAt
+      decayApplied: decayCheck.weeklyDecayApplied
     });
   } catch (error) {
     console.error(error);
@@ -337,12 +300,47 @@ app.post('/api/character/sync', async (req, res) => {
 
 // ── LOGIC HELPERS ────────────────────────────────────────────
 
+const STAT_KEYS = ['strength', 'resistance', 'dexterity', 'speed', 'intelligence', 'maxMana', 'willpower', 'charisma'];
+
+const BRANCH_STATS = {
+  strength: ['strength', 'resistance'],
+  dexterity: ['dexterity', 'speed'],
+  intelligence: ['intelligence', 'maxMana'],
+  willpower: ['willpower', 'charisma']
+};
+
+function pickStats(source) {
+  return Object.fromEntries(STAT_KEYS.map(key => [key, source[key]]));
+}
+
+// Anti-cheat: per branch, stats + unspent points must add up to the same total as before
+function isValidStatAllocation(character, stats, branchPoints) {
+  return Object.entries(BRANCH_STATS).every(([bKey, statKeys]) => {
+    const oldTotal = statKeys.reduce((sum, key) => sum + (character[key] || 5), 0) + (character.branchPoints[bKey] || 0);
+    const newTotal = statKeys.reduce((sum, key) => sum + (stats[key] || 5), 0) + (branchPoints[bKey] || 0);
+    return newTotal === oldTotal;
+  });
+}
+
+// Balanced growth: each level needs level * 50 XP and every stat at 5 + level or more
+function computeLevelUp(level, xp, stats) {
+  while (xp >= level * 50) {
+    const reqValue = 5 + level;
+    if (!STAT_KEYS.every(key => stats[key] >= reqValue)) {
+      return { level, blockedLevelUp: true };
+    }
+    level += 1;
+  }
+  return { level, blockedLevelUp: false };
+}
+
+// Returns { character, weeklyDecayApplied } so callers can tell the player their stats dropped
 async function checkInactivityAndDecay(characterId) {
   const character = await prisma.character.findUnique({
     where: { id: characterId }
   });
 
-  if (!character) return null;
+  if (!character) return { character: null, weeklyDecayApplied: false };
 
   const now = new Date();
   let updatedCharacter = character;
@@ -446,6 +444,7 @@ async function checkInactivityAndDecay(characterId) {
   }
 
   // 3. Weekly Stat Decay Check (< 3 activities per week)
+  let weeklyDecayApplied = false;
   const msSinceLastDecay = now.getTime() - updatedCharacter.lastDecayAppliedAt.getTime();
   const daysSinceLastDecay = msSinceLastDecay / (1000 * 60 * 60 * 24);
 
@@ -462,6 +461,7 @@ async function checkInactivityAndDecay(characterId) {
     if (count < 3) {
       // Decay stats by 1 point (min 5)
       const decay = (val) => Math.max(5, val - 1);
+      weeklyDecayApplied = STAT_KEYS.some(key => decay(updatedCharacter[key]) !== updatedCharacter[key]);
       updatedCharacter = await prisma.character.update({
         where: { id: characterId },
         data: {
@@ -487,13 +487,14 @@ async function checkInactivityAndDecay(characterId) {
     }
   }
 
-  return updatedCharacter;
+  return { character: updatedCharacter, weeklyDecayApplied };
 }
 
 // ── SECURE SERVER-AUTHORITATIVE ENDPOINTS ─────────────────────
 
-app.post('/api/character/enemy-killed', async (req, res) => {
-  const { userId, enemyName } = req.body;
+app.post('/api/character/enemy-killed', requireAuth, async (req, res) => {
+  const { enemyName } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -569,8 +570,9 @@ app.post('/api/character/enemy-killed', async (req, res) => {
   }
 });
 
-app.post('/api/character/open-chest', async (req, res) => {
-  const { userId, mapId, x, y } = req.body;
+app.post('/api/character/open-chest', requireAuth, async (req, res) => {
+  const { mapId, x, y } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -595,7 +597,6 @@ app.post('/api/character/open-chest', async (req, res) => {
       goldDrop = Math.floor(Math.random() * 71) + 80; // 80-150
     }
 
-    // Set 20 minutes cooldown
     const COOLDOWN_MS = 20 * 60 * 1000;
     chestCooldowns[chestKey] = now + COOLDOWN_MS;
     activitiesToday.chestCooldowns = chestCooldowns;
@@ -619,8 +620,20 @@ app.post('/api/character/open-chest', async (req, res) => {
   }
 });
 
-app.post('/api/character/buy-item', async (req, res) => {
-  const { userId, itemId, price, name, icon, type } = req.body;
+// Prices live on the server so clients cannot choose what they pay
+const SHOP_ITEMS = {
+  potion_hp: { name: 'Agua Mineral', icon: '🥤', type: 'consumable', price: 25 },
+  potion_mp: { name: 'Café Cargado', icon: '☕', type: 'consumable', price: 25 },
+};
+
+app.post('/api/character/buy-item', requireAuth, async (req, res) => {
+  const { itemId } = req.body;
+  const { userId } = req;
+  const item = SHOP_ITEMS[itemId];
+  if (!item) {
+    return res.status(400).json({ error: 'Producto no disponible.' });
+  }
+  const { name, icon, type, price } = item;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -652,8 +665,9 @@ app.post('/api/character/buy-item', async (req, res) => {
   }
 });
 
-app.post('/api/character/consume-item', async (req, res) => {
-  const { userId, itemId } = req.body;
+app.post('/api/character/consume-item', requireAuth, async (req, res) => {
+  const { itemId } = req.body;
+  const { userId } = req;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });
@@ -688,9 +702,10 @@ app.post('/api/character/consume-item', async (req, res) => {
 
 // Redirect to Fitbit Authorization
 app.get('/api/auth/fitbit', (req, res) => {
-  const { userId } = req.query;
+  // This is a browser navigation, so the token comes in the query string instead of a header
+  const userId = verifyToken(req.query.token);
   if (!userId) {
-    return res.status(400).send('userId is required');
+    return res.status(401).send('Sesión inválida. Inicia sesión de nuevo.');
   }
 
   const clientId = process.env.FITBIT_CLIENT_ID;
@@ -700,16 +715,18 @@ app.get('/api/auth/fitbit', (req, res) => {
     return res.status(500).send('Fitbit integration is not configured on the server.');
   }
 
-  // Passing the userId in the state parameter
-  const authorizeUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=activity%20heartrate%20profile%20weight&state=${userId}&expires_in=31536000`;
+  // Signed state so the callback cannot be forged to link Fitbit to another account
+  const state = signToken(userId, '10m');
+  const authorizeUrl = `https://www.fitbit.com/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=activity%20heartrate%20profile%20weight&state=${state}&expires_in=31536000`;
   
   res.redirect(authorizeUrl);
 });
 
 // Callback from Fitbit
 app.get('/api/auth/fitbit/callback', async (req, res) => {
-  const { code, state: userId } = req.query;
-  
+  const { code, state } = req.query;
+  const userId = verifyToken(state);
+
   if (!code || !userId) {
     return res.status(400).send('Faltan parámetros OAuth.');
   }
@@ -809,12 +826,8 @@ async function refreshFitbitToken(character) {
 }
 
 // Fitbit Exercise Sync Endpoint
-app.post('/api/character/fitbit/sync', async (req, res) => {
-  const { userId } = req.body;
-  
-  if (!userId) {
-    return res.status(400).json({ error: 'userId es requerido.' });
-  }
+app.post('/api/character/fitbit/sync', requireAuth, async (req, res) => {
+  const { userId } = req;
 
   try {
     let character = await prisma.character.findUnique({
@@ -924,7 +937,6 @@ app.post('/api/character/fitbit/sync', async (req, res) => {
     // If there is any progress to register, save it to DB
     let updatedCharacter = character;
     if (loggedActivities.length > 0) {
-      // Create Activity entries
       await prisma.activity.createMany({
         data: loggedActivities.map(act => ({
           characterId: character.id,
@@ -944,50 +956,8 @@ app.post('/api/character/fitbit/sync', async (req, res) => {
       // Add Vitality points! (100 per activity logged)
       newBranchPoints.vitality = Math.min(300, (newBranchPoints.vitality || 100) + loggedActivities.length * 100);
 
-      // Check level up (Balanced Growth requirements check)
-      let computedLevel = character.level;
-      let computedXp = character.xp + xpEarned;
-      let blockedLevelUp = false;
-      let levelCheck = true;
-
-      const currentStats = {
-        strength: character.strength,
-        resistance: character.resistance,
-        dexterity: character.dexterity,
-        speed: character.speed,
-        intelligence: character.intelligence,
-        maxMana: character.maxMana,
-        willpower: character.willpower,
-        charisma: character.charisma
-      };
-
-      while (levelCheck) {
-        const xpNeeded = computedLevel * 50;
-        if (computedXp >= xpNeeded) {
-          const reqValue = 5 + computedLevel;
-          const statsToVerify = [
-            currentStats.strength,
-            currentStats.resistance,
-            currentStats.dexterity,
-            currentStats.speed,
-            currentStats.intelligence,
-            currentStats.maxMana,
-            currentStats.willpower,
-            currentStats.charisma
-          ];
-
-          const isBalanced = statsToVerify.every(val => val >= reqValue);
-
-          if (isBalanced) {
-            computedLevel += 1;
-          } else {
-            blockedLevelUp = true;
-            levelCheck = false;
-          }
-        } else {
-          levelCheck = false;
-        }
-      }
+      const computedXp = character.xp + xpEarned;
+      const { level: computedLevel } = computeLevelUp(character.level, computedXp, pickStats(character));
 
       updatedCharacter = await prisma.character.update({
         where: { id: character.id },
@@ -1038,9 +1008,13 @@ io.on('connection', (socket) => {
 
   // ── PRESENCE ──────────────────────────────────────────────────
   // peerJsId = el ID de PeerJS del cliente (para que los guests puedan conectarse directamente)
-  socket.on('user-online', ({ userId, email, characterName, peerJsId }) => {
+  socket.on('user-online', async ({ token, characterName, peerJsId }) => {
+    const userId = verifyToken(token);
+    const user = userId && await prisma.user.findUnique({ where: { id: userId } }).catch(() => null);
+    if (!user) return;
+
     socket.userId = userId;
-    socket.userEmail = email ? email.toLowerCase().trim() : '';
+    socket.userEmail = user.email.toLowerCase().trim();
     socket.characterName = characterName;
     socket.peerJsId = peerJsId || null;
     socket.partnerIds = socket.partnerIds || [];
