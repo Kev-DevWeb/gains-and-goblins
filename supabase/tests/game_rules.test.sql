@@ -2,7 +2,7 @@
 -- Run against a throwaway local Postgres (not your Supabase project):
 --   createdb game
 --   psql -d game -f supabase/tests/supabase_stub.sql
---   psql -d game -v ON_ERROR_STOP=1 -f supabase/migrations/20261021000000_game_schema.sql
+--   for f in supabase/migrations/*.sql; do psql -d game -v ON_ERROR_STOP=1 -f "$f"; done
 --   psql -d game -q -t -A -f supabase/tests/game_rules.test.sql | grep -E "^(OK|FALLA)|pruebas OK"
 -- Note: wrap calls in a subquery before using BETWEEN, which evaluates its left side twice.
 \set ON_ERROR_STOP 1
@@ -77,6 +77,16 @@ select t.check('moral guardada', (select moral from public.characters) = 3);
 select t.check('cooldowns de cofres no se pueden borrar', (select activities_today from public.characters) = '{"bar":2,"chestCooldowns":{"guild_1_1":123}}');
 reset role;
 
+-- ── Activities grant a branch point ───────────────────────────────
+reset role; update public.characters set strength=5,resistance=5,dexterity=5,speed=5,intelligence=5,max_mana=20,willpower=5,charisma=5,
+  branch_points = '{"strength":0,"dexterity":0,"intelligence":0,"willpower":0}' where user_id = :A; set role authenticated;
+select t.check('actividad con su punto de regalo se acepta', (public.sync_character('{"xp":50,"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":1,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"strength","xpEarned":50}}')->'character'->'branchPoints'->>'strength')::int = 1);
+select t.check('dos puntos con una actividad es trampa', t.err($$select public.sync_character('{"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":3,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"strength"}}')$$) like '%inválida%');
+select t.check('el punto va a la rama de la actividad', t.err($$select public.sync_character('{"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":2,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"study"}}')$$) like '%inválida%');
+select t.check('actividad inventada', t.err($$select public.sync_character('{"newActivityLogged":{"type":"dormir"}}')$$) like '%desconocida%');
+select t.check('sin puntos enviados el servidor suma el punto', (public.sync_character('{"newActivityLogged":{"type":"meditation"}}')->'character'->'branchPoints'->>'willpower')::int = 1);
+reset role;
+
 -- ── Weekly decay ──────────────────────────────────────────────────
 delete from public.activities;
 update public.characters set strength=9,resistance=9,dexterity=9,speed=9,intelligence=9,max_mana=9,willpower=9,charisma=9,
@@ -133,6 +143,16 @@ select t.check('dos aguas apiladas', (select (inventory->0->>'count')::int = 2 f
 select t.check('consumir resta 1', (public.consume_item('potion_hp')->'inventory'->0->>'count')::int = 1);
 select t.check('consumir el ultimo lo quita', jsonb_array_length(public.consume_item('potion_hp')->'inventory') = 0);
 select t.check('consumir sin tener', t.err($$select public.consume_item('potion_hp')$$) like '%No posees%');
+reset role;
+
+-- ── Finding players for invites ───────────────────────────────────
+set role authenticated; select t.as_user(:A);
+select t.check('encuentra a Beto por correo', public.find_player_by_email('  BETO@x.com ') = '22222222-2222-2222-2222-222222222222');
+select t.check('no se encuentra a si mismo', public.find_player_by_email('ana@x.com') is null);
+select t.check('correo desconocido', public.find_player_by_email('nadie@x.com') is null);
+reset role;
+set role anon;
+select t.check('anon no puede buscar jugadores', t.err($$select public.find_player_by_email('beto@x.com')$$) like '%permission denied%');
 reset role;
 
 select case when ok then 'OK   ' else 'FALLA' end || ' ' || name || coalesce(' ' || nullif(detail, ''), '') from t.results order by n;
