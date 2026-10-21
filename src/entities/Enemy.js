@@ -16,7 +16,7 @@ const STATES = {
 export default class Enemy extends Phaser.Physics.Arcade.Sprite {
   constructor(scene, x, y, typeConfig, level = 1) {
     const key = `enemy_${typeConfig.name.toLowerCase().replace(/\s+/g, '_')}`;
-    super(scene, x, y, key);
+    super(scene, x, y, key, 0);
     
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -66,8 +66,16 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
       strokeThickness: 2,
     }).setOrigin(0.5).setDepth(11);
     
-    // Tint based on config color if needed, or rely on generated sprite
-    this.setTint(typeConfig.color);
+    // Idle "breathing" loop; random start so enemies don't move in sync
+    if (!scene.anims.exists(`${key}-idle`)) {
+      scene.anims.create({
+        key: `${key}-idle`,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: 1 }),
+        frameRate: 2.5,
+        repeat: -1
+      });
+    }
+    this.play({ key: `${key}-idle`, startFrame: Phaser.Math.Between(0, 1) });
   }
 
   _getEffectTint() {
@@ -77,7 +85,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     if (isFr && isBu) return 0x9b59b6; // purple
     if (isFr) return 0x3498db; // blue
     if (isBu) return 0xe67e22; // orange
-    return this.typeConfig.color;
+    return 0xffffff;
   }
 
   update(player) {
