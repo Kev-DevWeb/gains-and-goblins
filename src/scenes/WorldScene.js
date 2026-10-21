@@ -351,7 +351,8 @@ export default class WorldScene extends Phaser.Scene {
     this._emitPlayerState();
     this.game.events.emit('update-affinity', this.player.dominantBranch, this.player.affinityData?.counts || {});
 
-    const unspent = Object.entries(this.player.branchPoints).filter(([, v]) => v > 0);
+    // branchPoints also stores vitality and spell data, so only count the real branches
+    const unspent = Object.keys(BRANCHES).filter(key => (this.player.branchPoints[key] || 0) > 0);
     if (unspent.length > 0) {
       this._notify('¡Tienes puntos sin gastar! (TAB → Asignar)', '#f1c40f');
     }
