@@ -1,38 +1,40 @@
 // ============================================================================
 // SaveSystem.js — online persistence for Gains & Goblins
 // ============================================================================
-// Saves and loads player state from the Supabase backend.
-// Falls back to localStorage cache for seamless gameplay.
+// Accounts live in Supabase Auth and progress in the Supabase database. Every
+// change goes through the game functions in supabase/migrations, which enforce
+// the rules. A localStorage copy keeps the game responsive between syncs.
 // ============================================================================
+
+import { supabase } from './supabaseClient.js';
 
 const SAVE_KEY = 'gains_goblins_save';
 const USER_ID_KEY = 'gains_goblins_user_id';
-const TOKEN_KEY = 'gains_goblins_token';
 // Set when the server reports a weekly stat decay before the world scene exists
 const PENDING_DECAY_KEY = 'gains_goblins_pending_decay';
 
-function getBackendUrl() {
-  const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+// Supabase Auth answers in English; show players the common cases in Spanish
+const AUTH_ERRORS = {
+  'Invalid login credentials': 'Correo o contraseña incorrectos.',
+  'Email not confirmed': 'Confirma tu correo: te enviamos un enlace al registrarte.',
+  'User already registered': 'El correo ya está registrado.',
+  'Password should be at least 6 characters.': 'La contraseña debe tener al menos 6 caracteres.',
+};
 
-  if (configuredUrl) {
-    return configuredUrl.replace(/\/$/, '');
-  }
-
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return 'http://localhost:3001/api';
-  }
-
-  // In production, Vercel should point this at the deployed API origin.
-  return '/api';
+function friendlyError(error) {
+  return AUTH_ERRORS[error.message] || error.message;
 }
 
-const BACKEND_URL = getBackendUrl();
+// Keep the cached user id in step with Supabase (sign-out, expired session, Google redirect)
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.user) {
+    localStorage.setItem(USER_ID_KEY, session.user.id);
+  } else {
+    localStorage.removeItem(USER_ID_KEY);
+  }
+});
 
 export default class SaveSystem {
-  static getBackendUrl() {
-    return getBackendUrl();
-  }
-
   /**
    * Returns true once if a weekly stat decay happened while loading, then clears it.
    */
@@ -50,102 +52,74 @@ export default class SaveSystem {
     return localStorage.getItem(USER_ID_KEY);
   }
 
-  static setUserId(id) {
-    if (id) {
-      localStorage.setItem(USER_ID_KEY, id);
-    } else {
-      localStorage.removeItem(USER_ID_KEY);
-      localStorage.removeItem(TOKEN_KEY);
-    }
-  }
-
-  static getToken() {
-    return localStorage.getItem(TOKEN_KEY);
-  }
-
-  static authHeaders() {
-    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getToken()}` };
-  }
-
   /**
-   * Register a new user and create their starting character.
-   * @param {string} email
-   * @param {string} password
-   * @param {string} name
+   * Create an account with email and password.
+   * Returns { success, needsConfirmation } when Supabase asks the player to confirm their email first.
    */
   static async register(email, password, name) {
-    try {
-      const response = await fetch(`${BACKEND_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Error en el registro.');
-      }
-      
-      this.setUserId(data.character.userId);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-      return { success: true, character: data.character };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name }, emailRedirectTo: window.location.origin },
+    });
+    if (error) return { success: false, error: friendlyError(error) };
+    if (!data.session) return { success: true, needsConfirmation: true };
+
+    const character = await this.loadFromServer();
+    return character ? { success: true, character } : { success: false, error: 'No se pudo crear el personaje.' };
   }
 
-  /**
-   * Log in an existing user and fetch their character progress.
-   * @param {string} email
-   * @param {string} password
-   */
   static async login(email, password) {
-    try {
-      const response = await fetch(`${BACKEND_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Error en el inicio de sesión.');
-      }
-      
-      this.setUserId(data.character.userId);
-      localStorage.setItem(TOKEN_KEY, data.token);
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-      if (data.decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
-      return { success: true, character: data.character };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { success: false, error: friendlyError(error) };
+
+    const character = await this.loadFromServer();
+    return character ? { success: true, character } : { success: false, error: 'No se pudo cargar el personaje.' };
+  }
+
+  /** Leaves the page for Google's sign-in screen; Supabase restores the session on return. */
+  static async loginWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    return error ? { success: false, error: friendlyError(error) } : { success: true };
   }
 
   /**
-   * Load the character state from the backend.
-   * Falls back to local cache if offline.
+   * Load the character for the signed-in player, creating it on their first visit.
+   * Returns null when nobody is signed in. Falls back to the local cache if offline.
    */
   static async loadFromServer() {
-    const userId = this.getUserId();
-    if (!userId) return null;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      localStorage.removeItem(SAVE_KEY);
+      return null;
+    }
+
     try {
-      const response = await fetch(`${BACKEND_URL}/character/${userId}`, { headers: this.authHeaders() });
-      if (!response.ok) {
-        if (response.status === 444 || response.status === 401) {
-          // Character not found or user deleted
-          this.setUserId(null);
-          localStorage.removeItem(SAVE_KEY);
-        }
-        return null;
+      let { data, error } = await supabase.rpc('get_character');
+      if (error) throw error;
+
+      if (!data.character) {
+        ({ data, error } = await supabase.rpc('create_character', { p_name: this._heroName(session.user) }));
+        if (error) throw error;
       }
-      const { decayApplied, ...data } = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-      if (decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
-      return data;
+
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      if (data.decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
+      return data.character;
     } catch (err) {
       console.warn('[SaveSystem] Sync failed during load, loading from cache:', err);
       return this.load();
     }
+  }
+
+  // Name chosen at registration, else the Google profile name, else the email
+  static _heroName(user) {
+    const meta = user.user_metadata || {};
+    const name = meta.name || meta.full_name || user.email?.split('@')[0] || 'Héroe';
+    return name.trim().slice(0, 24) || 'Héroe';
   }
 
   /**
@@ -163,9 +137,7 @@ export default class SaveSystem {
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(localData));
 
-      // Asynchronously trigger server sync if user is logged in
-      const userId = this.getUserId();
-      if (userId) {
+      if (this.getUserId()) {
         this.syncServer(playerData, newActivityLogged);
       }
       return true;
@@ -179,42 +151,31 @@ export default class SaveSystem {
    * Sync character data with the server.
    */
   static async syncServer(playerData, newActivityLogged) {
-    try {
-      const payload = {
-        xp: playerData.xp,
-        gold: playerData.gold,
-        moral: playerData.moral,
-        stats: playerData.stats,
-        branchPoints: playerData.branchPoints,
-        inventory: playerData.inventory,
-        activitiesToday: playerData.activitiesToday,
-        newActivityLogged,
-      };
-
-      const response = await fetch(`${BACKEND_URL}/character/sync`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        // Merge server-calculated properties (e.g. stats decay, level calculations, recovery status)
-        const cache = {
-          ...playerData,
-          ...result.character,
-          lastSaveDate: new Date().toISOString().split('T')[0],
-          savedAt: Date.now(),
-        };
-        localStorage.setItem(SAVE_KEY, JSON.stringify(cache));
-
-        // Dispatch a global event so the game scene updates if there are modifications
-        window.dispatchEvent(new CustomEvent('character-synced', { detail: result }));
-      }
-    } catch (err) {
-      console.warn('[SaveSystem] Asynchronous server sync failed:', err);
+    const payload = {
+      xp: playerData.xp,
+      moral: playerData.moral,
+      stats: playerData.stats,
+      branchPoints: playerData.branchPoints,
+      activitiesToday: playerData.activitiesToday,
+      newActivityLogged,
+    };
+    const { data: result, error } = await supabase.rpc('sync_character', { p_data: payload });
+    if (error) {
+      console.warn('[SaveSystem] Asynchronous server sync failed:', error.message);
+      return;
     }
+
+    // Merge server-calculated properties (e.g. stats decay, level calculations, recovery status)
+    const cache = {
+      ...playerData,
+      ...result.character,
+      lastSaveDate: new Date().toISOString().split('T')[0],
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(cache));
+
+    // Dispatch a global event so the game scene updates if there are modifications
+    window.dispatchEvent(new CustomEvent('character-synced', { detail: result }));
   }
 
   /**
@@ -253,129 +214,54 @@ export default class SaveSystem {
   }
 
   /**
-   * Securely notify server that an enemy was killed.
+   * Calls a game function and publishes the updated character.
+   * Returns the function's result, or null on failure.
    */
-  static async enemyKilled(enemyName) {
-    const userId = this.getUserId();
-    if (!userId) return null;
-    try {
-      const response = await fetch(`${BACKEND_URL}/character/enemy-killed`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify({ enemyName })
-      });
-      if (!response.ok) throw new Error('Error al notificar muerte de enemigo.');
-      const data = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
-      return data;
-    } catch (err) {
-      console.warn('[SaveSystem] enemyKilled failed:', err);
+  static async _callGame(fn, args, label) {
+    if (!this.getUserId()) return null;
+    const { data, error } = await supabase.rpc(fn, args);
+    if (error) {
+      console.warn(`[SaveSystem] ${label} failed:`, error.message);
       return null;
     }
+    const character = data.character || data;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(character));
+    window.dispatchEvent(new CustomEvent('character-synced', { detail: { character } }));
+    return data;
   }
 
-  /**
-   * Securely open a chest.
-   */
-  static async openChest(mapId, x, y) {
-    const userId = this.getUserId();
-    if (!userId) return null;
-    try {
-      const response = await fetch(`${BACKEND_URL}/character/open-chest`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify({ mapId, x, y })
-      });
-      if (!response.ok) throw new Error('Error al abrir cofre.');
-      const data = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
-      return data;
-    } catch (err) {
-      console.warn('[SaveSystem] openChest failed:', err);
-      return null;
-    }
+  static enemyKilled(enemyName) {
+    return this._callGame('enemy_killed', { p_enemy_name: enemyName }, 'enemyKilled');
   }
 
-  /**
-   * Securely buy an item.
-   */
-  static async buyItem(itemId) {
-    const userId = this.getUserId();
-    if (!userId) return null;
-    try {
-      const response = await fetch(`${BACKEND_URL}/character/buy-item`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify({ itemId })
-      });
-      if (!response.ok) throw new Error('Error al comprar item.');
-      const character = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(character));
-      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character } }));
-      return character;
-    } catch (err) {
-      console.warn('[SaveSystem] buyItem failed:', err);
-      return null;
-    }
+  static openChest(mapId, x, y) {
+    return this._callGame('open_chest', { p_map_id: mapId, p_x: x, p_y: y }, 'openChest');
   }
 
-  /**
-   * Securely consume/use an item.
-   */
-  static async consumeItem(itemId) {
-    const userId = this.getUserId();
-    if (!userId) return null;
-    try {
-      const response = await fetch(`${BACKEND_URL}/character/consume-item`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify({ itemId })
-      });
-      if (!response.ok) throw new Error('Error al consumir item.');
-      const character = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(character));
-      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character } }));
-      return character;
-    } catch (err) {
-      console.warn('[SaveSystem] consumeItem failed:', err);
-      return null;
-    }
+  /** Returns the updated character. */
+  static buyItem(itemId) {
+    return this._callGame('buy_item', { p_item_id: itemId }, 'buyItem');
+  }
+
+  /** Returns the updated character. */
+  static consumeItem(itemId) {
+    return this._callGame('consume_item', { p_item_id: itemId }, 'consumeItem');
   }
 
   /**
    * Securely sync Fitbit exercises with the server.
    */
   static async syncFitbit() {
-    const userId = this.getUserId();
-    if (!userId) return null;
-    try {
-      const response = await fetch(`${BACKEND_URL}/character/fitbit/sync`, {
-        method: 'POST',
-        headers: this.authHeaders(),
-        body: JSON.stringify({})
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Error al sincronizar con Google Health.');
-      }
-      const data = await response.json();
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-      window.dispatchEvent(new CustomEvent('character-synced', { detail: { character: data.character } }));
-      return data;
-    } catch (err) {
-      console.warn('[SaveSystem] syncFitbit failed:', err);
-      return { error: err.message };
-    }
+    return { error: 'La sincronización con Google Health estará disponible pronto.' };
   }
 
   /**
-   * Delete the local cache and authentication.
+   * Sign out and delete the local cache.
    */
-  static deleteSave() {
+  static async deleteSave() {
     localStorage.removeItem(SAVE_KEY);
-    this.setUserId(null);
+    localStorage.removeItem(USER_ID_KEY);
+    await supabase.auth.signOut();
   }
 
   /**

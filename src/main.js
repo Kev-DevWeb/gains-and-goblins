@@ -83,7 +83,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const password = document.getElementById('register-password').value;
     
     const result = await SaveSystem.register(email, password, name);
-    if (result.success) {
+    if (result.needsConfirmation) {
+      authErrorMsg.innerText = 'Te enviamos un correo de confirmación. Ábrelo y luego inicia sesión.';
+      authErrorMsg.style.color = 'var(--clr-gold)';
+    } else if (result.success) {
       authModal.classList.add('hidden');
       initGame();
     } else {
@@ -92,20 +95,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  // Check if already authenticated
-  const userId = SaveSystem.getUserId();
-  if (userId) {
-    authErrorMsg.innerText = 'Autenticando sesión previa...';
+  document.getElementById('btn-google-login').onclick = async () => {
+    authErrorMsg.innerText = 'Abriendo Google...';
     authErrorMsg.style.color = 'var(--clr-gold)';
-    const character = await SaveSystem.loadFromServer();
-    if (character) {
-      authModal.classList.add('hidden');
-      initGame();
-    } else {
-      authErrorMsg.innerText = 'Sesión previa expirada. Inicia sesión.';
+    const result = await SaveSystem.loginWithGoogle();
+    if (!result.success) {
+      authErrorMsg.innerText = result.error;
       authErrorMsg.style.color = 'var(--clr-crimson)';
-      SaveSystem.deleteSave();
     }
+  };
+
+  // Resume a saved session, including the one Supabase creates when returning from Google
+  authErrorMsg.innerText = 'Comprobando sesión...';
+  authErrorMsg.style.color = 'var(--clr-gold)';
+  const character = await SaveSystem.loadFromServer();
+  if (character) {
+    authModal.classList.add('hidden');
+    initGame();
+  } else {
+    authErrorMsg.innerText = '';
   }
 
   // Setup Activity Tracker Modal UI
@@ -163,13 +171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const connectBtn = document.getElementById('btn-fitbit-connect');
   if (connectBtn) {
     connectBtn.onclick = () => {
-      const token = SaveSystem.getToken();
-      if (!token) {
-        alert('Debes iniciar sesión primero.');
-        return;
-      }
-      const backendUrl = SaveSystem.getBackendUrl();
-      window.location.href = `${backendUrl}/auth/fitbit?token=${encodeURIComponent(token)}`;
+      alert('La conexión con Google Health estará disponible pronto.');
     };
   }
 
@@ -837,13 +839,11 @@ function setupGameEventListeners() {
   game.events.on('invite-received', (inviteData) => {
     const inviteModal = document.getElementById('p2p-invite-modal');
     const hostNameSpan = document.getElementById('p2p-invite-host-name');
-    const hostEmailSpan = document.getElementById('p2p-invite-host-email');
     const acceptBtn = document.getElementById('btn-p2p-accept');
     const declineBtn = document.getElementById('btn-p2p-decline');
 
-    if (inviteModal && hostNameSpan && hostEmailSpan) {
+    if (inviteModal && hostNameSpan) {
       hostNameSpan.innerText = inviteData.fromCharacterName;
-      hostEmailSpan.innerText = inviteData.fromEmail;
       
       inviteModal.style.display = 'flex';
       inviteModal.classList.remove('hidden');

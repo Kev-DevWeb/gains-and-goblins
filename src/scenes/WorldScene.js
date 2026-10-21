@@ -9,7 +9,7 @@ import DailyMissionSystem from '../utils/DailyMissionSystem.js';
 import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns } from '../utils/MapGenerator.js';
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
-import { io } from 'socket.io-client';
+import Lobby from '../utils/Lobby.js';
 import P2PManager from '../utils/P2PManager.js';
 
 const DECAY_NOTICE = 'Tus stats bajaron 1 punto por falta de actividades esta semana.';
@@ -428,7 +428,7 @@ export default class WorldScene extends Phaser.Scene {
     window.addEventListener('character-synced', this._characterSyncedListener);
   }
 
-  // Socket.IO (solo señalización) + PeerJS (datos en tiempo real)
+  // Supabase Realtime (presencia e invitaciones) + PeerJS (datos en tiempo real)
   _setupMultiplayer(saveData) {
     this.otherPlayers = this.add.group();
     this._p2p = new P2PManager();
@@ -437,40 +437,15 @@ export default class WorldScene extends Phaser.Scene {
     this._localPlayerLabel = null; // texto P1/P2/P3/P4 encima del jugador local
 
     const userId = SaveSystem.getUserId();
+    if (!userId) return;
     const characterName = saveData?.name || this.player.name || 'Héroe';
-    const backendUrl = userId ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
 
-    if (!backendUrl) return;
+    this.lobby = new Lobby(userId, characterName);
 
-    this.socket = io(backendUrl);
-
-    // ── Inicializar PeerJS ANTES de conectar socket ──
     this._p2p.init().then((myPeerId) => {
-      // Registrar presencia con el peerId para que el servidor lo almacene
-      const registerPresence = () => {
-        if (this.socket?.connected) {
-          this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: myPeerId });
-        } else {
-          this.socket?.once('connect', () => {
-            this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: myPeerId });
-          });
-        }
-      };
-      registerPresence();
-
-      // Si ya estaba conectado, actualizar el peerId igualmente
-      if (this.socket?.connected) {
-        this.socket.emit('update-peer-id', { peerJsId: myPeerId });
-      }
+      this.lobby.setPeerId(myPeerId);
     }).catch(err => {
       console.warn('[P2P] No se pudo inicializar PeerJS:', err);
-    });
-
-    this.socket.on('connect', () => {
-      // Si PeerJS ya está listo, registrar presencia ahora
-      if (this._p2p.peerId) {
-        this.socket.emit('user-online', { token: SaveSystem.getToken(), characterName, peerJsId: this._p2p.peerId });
-      }
     });
 
     this._setupPeerCallbacks();
@@ -523,8 +498,8 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   _setupInviteEvents() {
-    // invite-accepted: el servidor nos dice nuestro rol
-    this.socket.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
+    // invite-accepted: nos dice nuestro rol
+    this.lobby.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
       if (role === 'host') {
         // Somos el host (P1) — PeerJS ya está escuchando, no necesitamos hacer nada más.
         // Los guests se conectarán ellos solos con nuestro peerId.
@@ -566,41 +541,39 @@ export default class WorldScene extends Phaser.Scene {
       }
     });
 
-    this.socket.on('invite-sent', ({ toEmail }) => {
+    this.lobby.on('invite-sent', ({ toEmail }) => {
       this._notify(`📨 Invitación enviada a ${toEmail}`, '#ffd700');
     });
 
-    this.socket.on('invite-error', (msg) => {
+    this.lobby.on('invite-error', (msg) => {
       this._notify(msg, '#e94560');
       this.game.events.emit('invite-error', msg);
     });
 
-    this.socket.on('invite-declined', ({ guestEmail }) => {
+    this.lobby.on('invite-declined', ({ guestEmail }) => {
       this._notify(`❌ ${guestEmail} rechazó la invitación.`, '#e94560');
     });
 
-    this.socket.on('invite-received', (inviteData) => {
+    this.lobby.on('invite-received', (inviteData) => {
       this.game.events.emit('invite-received', inviteData);
     });
 
     // ── Handlers de eventos desde main.js / UI ──
 
-    this._onInviteAccept = ({ inviteId }) => {
-      if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: true });
-    };
-    this._onInviteDecline = ({ inviteId }) => {
-      if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: false });
-    };
+    this._onInviteAccept = ({ inviteId }) => this.lobby.respond(inviteId, true);
+    this._onInviteDecline = ({ inviteId }) => this.lobby.respond(inviteId, false);
     this._onSendInvite = (toEmail) => {
-      if (this.socket?.connected) this.socket.emit('send-invite', { toEmail });
+      // A world holds 4 players: the host plus 3 guests
+      if (this._isHost && this._p2p.connections.size >= 3) {
+        this.lobby.emit('invite-error', 'Tu sala ya esta llena (maximo 4 jugadores).');
+        return;
+      }
+      this.lobby.sendInvite(toEmail);
     };
     this._onLeaveWorld = () => {
-      if (this.socket?.connected) this.socket.emit('leave-world');
       this._p2p.close();
       // Reinicializar peer para seguir jugando solo
-      this._p2p.init().then(peerId => {
-        if (this.socket?.connected) this.socket.emit('update-peer-id', { peerJsId: peerId });
-      });
+      this._p2p.init().then(peerId => this.lobby.setPeerId(peerId));
       this._removeAllOtherPlayers();
       this._removeLocalPlayerLabel();
       this._isHost = false;
@@ -622,7 +595,7 @@ export default class WorldScene extends Phaser.Scene {
     if (this._onSendInvite) this.game.events.off('send-invite', this._onSendInvite);
     if (this._onLeaveWorld) this.game.events.off('leave-world', this._onLeaveWorld);
     if (this._p2p) this._p2p.close();
-    if (this.socket) this.socket.disconnect();
+    if (this.lobby) this.lobby.destroy();
   }
 
   _notify(text, color) {
