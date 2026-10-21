@@ -290,14 +290,14 @@ export default class SaveSystem {
   /**
    * Securely buy an item.
    */
-  static async buyItem(itemId, price, name, icon, type) {
+  static async buyItem(itemId) {
     const userId = this.getUserId();
     if (!userId) return null;
     try {
       const response = await fetch(`${BACKEND_URL}/character/buy-item`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, itemId, price, name, icon, type })
+        body: JSON.stringify({ userId, itemId })
       });
       if (!response.ok) throw new Error('Error al comprar item.');
       const character = await response.json();

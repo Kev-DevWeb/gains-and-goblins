@@ -568,8 +568,19 @@ app.post('/api/character/open-chest', async (req, res) => {
   }
 });
 
+// Prices live on the server so clients cannot choose what they pay
+const SHOP_ITEMS = {
+  potion_hp: { name: 'Agua Mineral', icon: '🥤', type: 'consumable', price: 25 },
+  potion_mp: { name: 'Café Cargado', icon: '☕', type: 'consumable', price: 25 },
+};
+
 app.post('/api/character/buy-item', async (req, res) => {
-  const { userId, itemId, price, name, icon, type } = req.body;
+  const { userId, itemId } = req.body;
+  const item = SHOP_ITEMS[itemId];
+  if (!item) {
+    return res.status(400).json({ error: 'Producto no disponible.' });
+  }
+  const { name, icon, type, price } = item;
   try {
     const character = await prisma.character.findUnique({ where: { userId } });
     if (!character) return res.status(404).json({ error: 'Personaje no encontrado.' });

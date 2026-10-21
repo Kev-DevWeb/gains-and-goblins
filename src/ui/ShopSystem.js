@@ -50,7 +50,7 @@ export default class ShopSystem {
       return;
     }
 
-    const updatedCharacter = await SaveSystem.buyItem(item.id, item.price, item.name, item.icon, 'consumable');
+    const updatedCharacter = await SaveSystem.buyItem(item.id);
     if (!updatedCharacter) {
       this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
       return;
