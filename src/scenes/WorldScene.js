@@ -27,7 +27,34 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   create() {
-    // ── Map ──
+    this._createMap();
+    const saveData = this._createPlayer();
+    this._createEnemies();
+    this._setupCamera();
+    this._showZoneTitle();
+
+    this.physics.add.collider(this.player, this.mapLayer);
+    this.physics.add.collider(this.enemiesGroup, this.mapLayer);
+    this.physics.add.collider(this.player, this.enemiesGroup);
+
+    this.scene.launch(SCENES.UI);
+
+    if (this.mapId === 'cueva_goblin') this._createVisionMask();
+    this._initChests();
+    this._createSystems();
+    this._createNPCs();
+    this._setupInput();
+    this._createOverlays();
+    this._bindEvents();
+    this.time.delayedCall(100, () => this._syncInitialUI());
+    this._startTimers();
+    this._listenCharacterSync();
+    this._setupMultiplayer(saveData);
+
+    this.events.once('shutdown', () => this._cleanup());
+  }
+
+  _createMap() {
     const mapData = generateMap(this.mapId, MAP_WIDTH, MAP_HEIGHT);
     this._mapData = mapData; 
     const map = this.make.tilemap({ data: mapData, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
@@ -36,8 +63,9 @@ export default class WorldScene extends Phaser.Scene {
     this.mapLayer.setCollision(SOLID_TILES);
 
     this.transitions = getTransitions(this.mapId);
+  }
 
-    // ── Player ──
+  _createPlayer() {
     const spawnTile = getSpawnPoint(this.mapId, this.spawnId);
     Player.createAnimations(this);
     this.player = new Player(this, spawnTile.x * TILE_SIZE, spawnTile.y * TILE_SIZE);
@@ -46,19 +74,23 @@ export default class WorldScene extends Phaser.Scene {
     if (saveData) {
       this.player.loadSaveData(saveData);
     }
+    return saveData;
+  }
 
-    // ── Enemies ──
+  _createEnemies() {
     this.enemiesGroup = this.physics.add.group();
     this._enemySpawnData = getEnemySpawns(this.mapId); // Save for respawning
     this._spawnEnemies();
+  }
 
-    // ── Camera ──
+  _setupCamera() {
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setBounds(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
     this.cameras.main.setZoom(2.5);
     this.cameras.main.fadeIn(800, 0, 0, 0);
+  }
 
-    // ── Zone Title Display ──
+  _showZoneTitle() {
     const zoneNames = { 'guild': 'Gremio de Héroes', 'deeproot': 'Deeproot', 'cueva_goblin': 'Cueva Goblin' };
     const titleText = this.add.text(
       (MAP_WIDTH * TILE_SIZE) / 2, 
@@ -88,42 +120,32 @@ export default class WorldScene extends Phaser.Scene {
         });
       }
     });
+  }
 
-    // ── Collisions ──
-    this.physics.add.collider(this.player, this.mapLayer);
-    this.physics.add.collider(this.enemiesGroup, this.mapLayer);
-    this.physics.add.collider(this.player, this.enemiesGroup);
+  _createVisionMask() {
+    this.visionMask = this.make.graphics();
+    this.visionMask.fillStyle(0x000000, 0.98); // Very dark
+    this.visionMask.fillRect(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
+    this.visionMask.setDepth(90); // Above map and entities, below UI/Text
+    
+    this.visionEraser = this.make.graphics();
+    this.visionEraser.fillStyle(0xffffff, 1);
+    
+    const mask = this.visionEraser.createGeometryMask();
+    mask.setInvertAlpha(true);
+    this.visionMask.setMask(mask);
+  }
 
-    // ── UI Scene ──
-    this.scene.launch(SCENES.UI);
-
-    // ── Vision System (Cueva Goblin) ──
-    if (this.mapId === 'cueva_goblin') {
-      this.visionMask = this.make.graphics();
-      this.visionMask.fillStyle(0x000000, 0.98); // Very dark
-      this.visionMask.fillRect(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
-      this.visionMask.setDepth(90); // Above map and entities, below UI/Text
-      
-      this.visionEraser = this.make.graphics();
-      this.visionEraser.fillStyle(0xffffff, 1);
-      
-      const mask = this.visionEraser.createGeometryMask();
-      mask.setInvertAlpha(true);
-      this.visionMask.setMask(mask);
-    }
-
-    // ── Chests (aleatorios con cooldown) ──
-    this._initChests();
-
-    // ── New Systems ──
+  _createSystems() {
     this.questSystem = new QuestSystem(this.game);
     this.dialogueSystem = new DialogueSystem(this);
     this.shopSystem = new ShopSystem(this.game, this.dialogueSystem);
     this.dailyMissions = new DailyMissionSystem(this.game);
 
     this.dailyMissions.trackVisit(this.mapId);
+  }
 
-    // ── NPCs ──
+  _createNPCs() {
     this.npcsGroup = this.add.group();
     
     if (this.mapId === 'guild') {
@@ -176,8 +198,9 @@ export default class WorldScene extends Phaser.Scene {
       this.player, this.npcsGroup,
       (pl, npc) => this._onPlayerNPCCollide(pl, npc)
     );
+  }
 
-    // ── Input ──
+  _setupInput() {
     this.cursors = this.input.keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.UP,
       down: Phaser.Input.Keyboard.KeyCodes.DOWN,
@@ -201,59 +224,43 @@ export default class WorldScene extends Phaser.Scene {
       M: Phaser.Input.Keyboard.KeyCodes.M,
     });
 
-     // Weapon switching
-    this.cursors.ONE.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.switchWeapon(WEAPONS.SWORD.key);
-      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.SWORD.key });
-    });
-    this.cursors.TWO.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.switchWeapon(WEAPONS.BOW.key);
-      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.BOW.key });
-    });
-    this.cursors.THREE.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.switchWeapon(WEAPONS.MAGIC.key);
-      if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey: WEAPONS.MAGIC.key });
-    });
+    // Ignore gameplay keys while a dialogue is open
+    const onKey = (key, handler) => {
+      this.cursors[key].on('down', () => {
+        if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+        handler();
+      });
+    };
+
+    const weaponKeys = { ONE: WEAPONS.SWORD.key, TWO: WEAPONS.BOW.key, THREE: WEAPONS.MAGIC.key };
+    for (const [key, weaponKey] of Object.entries(weaponKeys)) {
+      onKey(key, () => {
+        this.player.switchWeapon(weaponKey);
+        if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-weapon', weaponKey });
+      });
+    }
 
     // Spells (Q to switch active spell, F to cast active spell)
-    this.cursors.Q.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this.player.switchSpell();
-    });
-    this.cursors.F.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+    onKey('Q', () => this.player.switchSpell());
+    onKey('F', () => {
       const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
       if (activeSpell && activeSpell !== '-') {
         this.player.castSpell(activeSpell);
       } else {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          uiScene.showNotification('Ningún hechizo equipado', '#e94560');
-        }
+        this._notify('Ningún hechizo equipado', '#e94560');
       }
     });
-    this.cursors.R.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this._activateUltimate();
-    });
+    onKey('R', () => this._activateUltimate());
 
-    // Dodge Roll (SHIFT)
-    this.cursors.SHIFT.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
+    onKey('SHIFT', () => {
       this.player.dodgeRoll();
       if (this._p2p?.isConnected()) this._p2p.sendData({ type: 'player-rolled' });
     });
 
-    // Interact action (E key)
-    this.cursors.E.on('down', () => {
-      if (this.dialogueSystem && this.dialogueSystem.isActive) return;
-      this._handleInteraction();
-    });
+    onKey('E', () => this._handleInteraction());
+  }
 
-    // ── Interaction prompt ──
+  _createOverlays() {
     this._interactPrompt = this.add.text(0, 0, 'Presiona E', {
       fontFamily: 'Inter, sans-serif',
       fontSize: '8px',
@@ -264,26 +271,12 @@ export default class WorldScene extends Phaser.Scene {
       padding: { x: 4, y: 2 },
     }).setOrigin(0.5).setDepth(20).setVisible(false);
 
-    // ── Combat Indicators ──
     this.comboIndicator = this.add.graphics({ depth: 8 });
     this.trajectoryIndicator = this.add.graphics({ depth: 8 });
+  }
 
-    // ── Events ──
-    this.events.off('player-attack', this.handleAttack, this);
-    this.events.off('player-spell', this.handleSpellcast, this);
-    this.events.off('player-parry', this.handleParry, this);
-    this.events.off('enemy-died', this._onEnemyDied, this);
-    this.game.events.off('activity-logged', this._onActivityLogged, this);
-    this.game.events.off('player-died', this._onPlayerDied, this);
-    this.game.events.off('player-respawned', this._onPlayerRespawned, this);
-    this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
-    this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
-
-    // Hero Panel events
-    this.game.events.off('spend-branch-point');
-    this.game.events.off('equip-accessory');
-    this.game.events.off('unequip-accessory');
-    this.game.events.off('equip-spell');
+  _bindEvents() {
+    this._unbindEvents();
 
     this.events.on('player-attack', this.handleAttack, this);
     this.events.on('player-spell', this.handleSpellcast, this);
@@ -295,7 +288,7 @@ export default class WorldScene extends Phaser.Scene {
     this.game.events.on('quick-use-hp', this._onQuickUseHp, this);
     this.game.events.on('quick-use-mp', this._onQuickUseMp, this);
 
-    // Bind Hero Panel events
+    // Hero Panel events
     this.game.events.on('spend-branch-point', (branchKey, statKey) => {
       this.player.spendBranchPoint(branchKey, statKey);
       SaveSystem.save(this.player.getSaveData());
@@ -317,35 +310,53 @@ export default class WorldScene extends Phaser.Scene {
         SaveSystem.save(this.player.getSaveData());
       }
     });
+  }
 
-    // ── Initial UI sync ──
-    this.time.delayedCall(100, () => {
-      this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
-      this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
-      this.game.events.emit('update-xp', this.player.xp, this.player.level * 50, this.player.level);
-      this.game.events.emit('update-stats', this.player.stats);
-      this.game.events.emit('update-gold', this.player.gold);
-      this.game.events.emit('update-inventory', this.player.inventory);
-      this.game.events.emit('update-affinity', this.player.dominantBranch, this.player.affinityData?.counts || {});
-      this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
-      this.game.events.emit('update-vitality', this.player.vitality);
-      this.game.events.emit('update-equipped-accessories', this.player.equippedAccessories);
-      this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
-      const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
-      this.game.events.emit('active-spell-changed', activeSpell);
-      this._syncQuestsUI();
+  _unbindEvents() {
+    this.events.off('player-attack', this.handleAttack, this);
+    this.events.off('player-spell', this.handleSpellcast, this);
+    this.events.off('player-parry', this.handleParry, this);
+    this.events.off('enemy-died', this._onEnemyDied, this);
+    this.game.events.off('activity-logged', this._onActivityLogged, this);
+    this.game.events.off('player-died', this._onPlayerDied, this);
+    this.game.events.off('player-respawned', this._onPlayerRespawned, this);
+    this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
+    this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
+    this.game.events.off('spend-branch-point');
+    this.game.events.off('equip-accessory');
+    this.game.events.off('unequip-accessory');
+    this.game.events.off('equip-spell');
+  }
 
-      // Notify player of any unspent points from previous session
-      const unspent = Object.entries(this.player.branchPoints).filter(([, v]) => v > 0);
-      if (unspent.length > 0) {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          uiScene.showNotification('¡Tienes puntos sin gastar! (TAB → Asignar)', '#f1c40f');
-        }
-      }
-    });
+  // Pushes the full player state to the HUD and hero panel
+  _emitPlayerState() {
+    this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
+    this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
+    this.game.events.emit('update-xp', this.player.xp, this.player.level * 50, this.player.level);
+    this.game.events.emit('update-stats', this.player.stats);
+    this.game.events.emit('update-gold', this.player.gold);
+    this.game.events.emit('update-inventory', this.player.inventory);
+    this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
+    this.game.events.emit('update-vitality', this.player.vitality);
+    this.game.events.emit('update-equipped-accessories', this.player.equippedAccessories);
+    this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
+    const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
+    this.game.events.emit('active-spell-changed', activeSpell);
+    this._syncQuestsUI();
+  }
 
-    // ── Enemy respawn timer (60s for deeproot to avoid crowding, 30s for other maps) ──
+  _syncInitialUI() {
+    this._emitPlayerState();
+    this.game.events.emit('update-affinity', this.player.dominantBranch, this.player.affinityData?.counts || {});
+
+    const unspent = Object.entries(this.player.branchPoints).filter(([, v]) => v > 0);
+    if (unspent.length > 0) {
+      this._notify('¡Tienes puntos sin gastar! (TAB → Asignar)', '#f1c40f');
+    }
+  }
+
+  _startTimers() {
+    // 60s for deeproot to avoid crowding, 30s for other maps
     const respawnDelay = this.mapId === 'deeproot' ? 60000 : 30000;
     this._enemyRespawnTimer = this.time.addEvent({
       delay: respawnDelay,
@@ -353,7 +364,6 @@ export default class WorldScene extends Phaser.Scene {
       loop: true
     });
 
-    // ── Auto-save timer (every 30s) ──
     this._autoSaveTimer = this.time.addEvent({
       delay: 30000,
       callback: () => {
@@ -361,14 +371,15 @@ export default class WorldScene extends Phaser.Scene {
       },
       loop: true
     });
+  }
 
-    // Listen to online database updates
+  // Applies character updates pushed by SaveSystem after a server sync
+  _listenCharacterSync() {
     this._characterSyncedListener = (e) => {
       const { character, blockedLevelUp, requiredStatValue, decayApplied } = e.detail;
       if (character && this.player) {
         this.player.level = character.level;
         
-        // Sync stats
         this.player.stats = {
           strength: character.strength,
           resistance: character.resistance,
@@ -395,39 +406,24 @@ export default class WorldScene extends Phaser.Scene {
         this.player.equippedSpells = this.player.branchPoints.equippedSpells || ['shield', 'ghost_swords'];
         this.player.activeSpellIndex = this.player.branchPoints.activeSpellIndex || 0;
 
-        // Recalculate max HP and Mana
         this.player.maxHp = character.resistance * 10;
         this.player.maxMana = character.maxMana;
         
-        this.game.events.emit('update-health', this.player.hp, this.player.maxHp);
-        this.game.events.emit('update-mana', this.player.mana, this.player.maxMana);
-        this.game.events.emit('update-stats', this.player.stats);
-        this.game.events.emit('update-gold', this.player.gold);
-        this.game.events.emit('update-xp', this.player.xp, this.player.level * 50, this.player.level);
-        this.game.events.emit('update-inventory', this.player.inventory);
-        this.game.events.emit('update-branch-points', { ...this.player.branchPoints });
-        this.game.events.emit('update-vitality', this.player.vitality);
-        this.game.events.emit('update-equipped-accessories', this.player.equippedAccessories);
-        this.game.events.emit('update-spells', this.player.spells, this.player.equippedSpells);
-        const activeSpell = this.player.equippedSpells[this.player.activeSpellIndex];
-        this.game.events.emit('active-spell-changed', activeSpell);
-        this._syncQuestsUI();
+        this._emitPlayerState();
 
-        // Show notifications if applicable
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene && uiScene.showNotification) {
-          if (decayApplied) {
-            uiScene.showNotification("Tus stats bajaron 1 punto por falta de actividades esta semana.", "#e94560");
-          }
-          if (blockedLevelUp) {
-            uiScene.showNotification(`Nivel bloqueado: sube todos tus atributos a ${requiredStatValue} para subir nivel.`, "#e94560");
-          }
+        if (decayApplied) {
+          this._notify("Tus stats bajaron 1 punto por falta de actividades esta semana.", "#e94560");
+        }
+        if (blockedLevelUp) {
+          this._notify(`Nivel bloqueado: sube todos tus atributos a ${requiredStatValue} para subir nivel.`, "#e94560");
         }
       }
     };
     window.addEventListener('character-synced', this._characterSyncedListener);
+  }
 
-    // ── Socket.IO (Solo señalización) + PeerJS (Datos en tiempo real) ──
+  // Socket.IO (solo señalización) + PeerJS (datos en tiempo real)
+  _setupMultiplayer(saveData) {
     this.otherPlayers = this.add.group();
     this._p2p = new P2PManager();
     this._isHost = false;     // true si somos P1
@@ -439,215 +435,194 @@ export default class WorldScene extends Phaser.Scene {
     const userEmail = saveData?.email || '';
     const backendUrl = userId ? SaveSystem.getBackendUrl().replace(/\/api$/, '') : '';
 
-    if (backendUrl) {
-      this.socket = io(backendUrl);
+    if (!backendUrl) return;
 
-      // ── Inicializar PeerJS ANTES de conectar socket ──
-      this._p2p.init().then((myPeerId) => {
-        // Registrar presencia con el peerId para que el servidor lo almacene
-        const registerPresence = () => {
-          if (this.socket?.connected) {
-            this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
-          } else {
-            this.socket?.once('connect', () => {
-              this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
-            });
-          }
-        };
-        registerPresence();
+    this.socket = io(backendUrl);
 
-        // Si ya estaba conectado, actualizar el peerId igualmente
+    // ── Inicializar PeerJS ANTES de conectar socket ──
+    this._p2p.init().then((myPeerId) => {
+      // Registrar presencia con el peerId para que el servidor lo almacene
+      const registerPresence = () => {
         if (this.socket?.connected) {
-          this.socket.emit('update-peer-id', { peerJsId: myPeerId });
-        }
-      }).catch(err => {
-        console.warn('[P2P] No se pudo inicializar PeerJS:', err);
-      });
-
-      this.socket.on('connect', () => {
-        // Si PeerJS ya está listo, registrar presencia ahora
-        if (this._p2p.peerId) {
-          this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: this._p2p.peerId });
-        }
-      });
-
-      // ── PeerJS callbacks ──
-      this._p2p.onPlayerJoined((peerId, peerCharacterName, slot, x, y) => {
-        this._addOtherPlayer({ socketId: peerId, characterName: peerCharacterName, x: x || this.player.x, y: y || this.player.y, slot });
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification(`👥 ${peerCharacterName || slot} se unió al mundo`, '#2ecc71');
-        this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
-      });
-
-      this._p2p.onPlayerLeft((peerId, slot) => {
-        this._removeOtherPlayer(peerId);
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification(`👋 ${slot || 'Jugador'} salió del mundo`, '#e94560');
-        this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
-        // Si éramos guest y el host se fue, limpiar
-        if (!this._isHost && (slot === 'P1' || slot === null)) {
-          this._removeAllOtherPlayers();
-          this._removeLocalPlayerLabel();
-          this._mySlot = null;
-          this.game.events.emit('p2p-state-changed', 'alone', 0);
-        }
-      });
-
-      this._p2p.onDataReceived((fromPeerId, data) => {
-        if (data.type === 'player-moved') {
-          this._moveOtherPlayer({ socketId: fromPeerId, ...data });
-        } else if (data.type === 'player-attacked') {
-          this.drawRemoteAttack(fromPeerId, data);
-        } else if (data.type === 'player-spell') {
-          this.drawRemoteSpell(fromPeerId, data.spellKey, data.origin);
-        } else if (data.type === 'player-weapon') {
-          this._changeOtherPlayerWeapon({ socketId: fromPeerId, weaponKey: data.weaponKey });
-        } else if (data.type === 'player-rolled') {
-          const other = this.otherPlayers.getChildren().find(p => p.socketId === fromPeerId);
-          if (other) {
-            this.tweens.add({ targets: other, angle: 360, duration: 350, onComplete: () => { if (other.active) other.setAngle(0); } });
-          }
-        } else if (data.type === 'host-position') {
-          // Guest recibe posición inicial del host para teletransportarse
-          if (!this._isHost) {
-            this.player.x = data.x + Phaser.Math.Between(-24, 24);
-            this.player.y = data.y + Phaser.Math.Between(-24, 24);
-            this.cameras.main.flash(300, 100, 100, 255);
-          }
-        }
-      });
-
-
-      // ── Eventos de invitación del servidor ──
-
-      // invite-accepted: el servidor nos dice nuestro rol
-      this.socket.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
-        if (role === 'host') {
-          // Somos el host (P1) — PeerJS ya está escuchando, no necesitamos hacer nada más.
-          // Los guests se conectarán ellos solos con nuestro peerId.
-          this._isHost = true;
-          this._mySlot = 'P1';
-          this._p2p.becomeHost();
-          this._showLocalPlayerLabel('P1');
-          const uiScene = this.scene.get(SCENES.UI);
-          if (uiScene?.showNotification) uiScene.showNotification(`🟢 ${guestCharacterName} aceptó. Esperando conexión...`, '#2ecc71');
-          this.game.events.emit('p2p-state-changed', 'P1', this._p2p.connections.size);
+          this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
         } else {
-          // Somos un guest — conectarnos al host por PeerJS
-          if (!hostPeerId) {
-            const uiScene = this.scene.get(SCENES.UI);
-            if (uiScene?.showNotification) uiScene.showNotification('Error: el host no tiene PeerJS activo.', '#e94560');
-            return;
-          }
-          this._isHost = false;
-          this._p2p.connectToHost(hostPeerId);
-
-          // Escuchar cuándo PeerJS asigna nuestro slot (viene en el mensaje 'welcome')
-          // El slot se setea en P2PManager en la respuesta 'welcome'
-          // Aquí esperamos a que se asigne
-          const waitForSlot = setInterval(() => {
-            if (this._p2p.mySlot && this._p2p.mySlot !== 'P1') {
-              clearInterval(waitForSlot);
-              this._mySlot = this._p2p.mySlot;
-              this._showLocalPlayerLabel(this._mySlot);
-              this.game.events.emit('p2p-state-changed', this._mySlot, 1);
-            }
-          }, 100);
-
-          // Timeout de 10s
-          setTimeout(() => {
-            clearInterval(waitForSlot);
-            if (!this._mySlot) {
-              this._mySlot = 'P2'; // fallback
-              this._showLocalPlayerLabel('P2');
-            }
-          }, 10000);
-
-          const uiScene = this.scene.get(SCENES.UI);
-          if (uiScene?.showNotification) uiScene.showNotification(`🔵 Conectando al mundo de ${hostCharacterName}...`, '#88aaff');
+          this.socket?.once('connect', () => {
+            this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: myPeerId });
+          });
         }
-      });
-
-      // Un compañero salió (notificado por el servidor cuando se desconecta)
-      this.socket.on('partner-left', ({ socketId }) => {
-        // El cierre de la conexión PeerJS lo manejará onPlayerLeft automáticamente
-      });
-
-      // Envío de invitación exitoso
-      this.socket.on('invite-sent', ({ toEmail }) => {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification(`📨 Invitación enviada a ${toEmail}`, '#ffd700');
-      });
-
-      this.socket.on('invite-error', (msg) => {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification(msg, '#e94560');
-        this.game.events.emit('invite-error', msg);
-      });
-
-      this.socket.on('invite-declined', ({ guestEmail }) => {
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification(`❌ ${guestEmail} rechazó la invitación.`, '#e94560');
-      });
-
-      this.socket.on('invite-received', (inviteData) => {
-        this.game.events.emit('invite-received', inviteData);
-      });
-
-      // ── Handlers de eventos desde main.js / UI ──
-
-      this._onInviteAccept = ({ inviteId }) => {
-        if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: true });
       };
-      this._onInviteDecline = ({ inviteId }) => {
-        if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: false });
-      };
-      this._onSendInvite = (toEmail) => {
-        if (this.socket?.connected) this.socket.emit('send-invite', { toEmail });
-      };
-      this._onLeaveWorld = () => {
-        if (this.socket?.connected) this.socket.emit('leave-world');
-        this._p2p.close();
-        // Reinicializar peer para seguir jugando solo
-        this._p2p.init().then(peerId => {
-          if (this.socket?.connected) this.socket.emit('update-peer-id', { peerJsId: peerId });
-        });
+      registerPresence();
+
+      // Si ya estaba conectado, actualizar el peerId igualmente
+      if (this.socket?.connected) {
+        this.socket.emit('update-peer-id', { peerJsId: myPeerId });
+      }
+    }).catch(err => {
+      console.warn('[P2P] No se pudo inicializar PeerJS:', err);
+    });
+
+    this.socket.on('connect', () => {
+      // Si PeerJS ya está listo, registrar presencia ahora
+      if (this._p2p.peerId) {
+        this.socket.emit('user-online', { userId, email: userEmail, characterName, peerJsId: this._p2p.peerId });
+      }
+    });
+
+    this._setupPeerCallbacks();
+    this._setupInviteEvents();
+  }
+
+  _setupPeerCallbacks() {
+    this._p2p.onPlayerJoined((peerId, peerCharacterName, slot, x, y) => {
+      this._addOtherPlayer({ socketId: peerId, characterName: peerCharacterName, x: x || this.player.x, y: y || this.player.y, slot });
+      this._notify(`👥 ${peerCharacterName || slot} se unió al mundo`, '#2ecc71');
+      this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
+    });
+
+    this._p2p.onPlayerLeft((peerId, slot) => {
+      this._removeOtherPlayer(peerId);
+      this._notify(`👋 ${slot || 'Jugador'} salió del mundo`, '#e94560');
+      this.game.events.emit('p2p-state-changed', this._mySlot, this._p2p.connections.size);
+      // Si éramos guest y el host se fue, limpiar
+      if (!this._isHost && (slot === 'P1' || slot === null)) {
         this._removeAllOtherPlayers();
         this._removeLocalPlayerLabel();
-        this._isHost = false;
         this._mySlot = null;
         this.game.events.emit('p2p-state-changed', 'alone', 0);
-      };
-
-      this.game.events.on('invite-accept', this._onInviteAccept);
-      this.game.events.on('invite-decline', this._onInviteDecline);
-      this.game.events.on('send-invite', this._onSendInvite);
-      this.game.events.on('leave-world', this._onLeaveWorld);
-    }
-
-    // Clean up event listener when scene shuts down
-    this.events.once('shutdown', () => {
-      window.removeEventListener('character-synced', this._characterSyncedListener);
-      this.events.off('player-attack', this.handleAttack, this);
-      this.events.off('player-spell', this.handleSpellcast, this);
-      this.events.off('player-parry', this.handleParry, this);
-      this.events.off('enemy-died', this._onEnemyDied, this);
-      this.game.events.off('activity-logged', this._onActivityLogged, this);
-      this.game.events.off('player-died', this._onPlayerDied, this);
-      this.game.events.off('player-respawned', this._onPlayerRespawned, this);
-      this.game.events.off('quick-use-hp', this._onQuickUseHp, this);
-      this.game.events.off('quick-use-mp', this._onQuickUseMp, this);
-      this.game.events.off('spend-branch-point');
-      this.game.events.off('equip-accessory');
-      this.game.events.off('unequip-accessory');
-      this.game.events.off('equip-spell');
-      if (this._onInviteAccept) this.game.events.off('invite-accept', this._onInviteAccept);
-      if (this._onInviteDecline) this.game.events.off('invite-decline', this._onInviteDecline);
-      if (this._onSendInvite) this.game.events.off('send-invite', this._onSendInvite);
-      if (this._onLeaveWorld) this.game.events.off('leave-world', this._onLeaveWorld);
-      if (this._p2p) this._p2p.close();
-      if (this.socket) this.socket.disconnect();
+      }
     });
+
+    this._p2p.onDataReceived((fromPeerId, data) => {
+      if (data.type === 'player-moved') {
+        this._moveOtherPlayer({ socketId: fromPeerId, ...data });
+      } else if (data.type === 'player-attacked') {
+        this.drawRemoteAttack(fromPeerId, data);
+      } else if (data.type === 'player-spell') {
+        this.drawRemoteSpell(fromPeerId, data.spellKey, data.origin);
+      } else if (data.type === 'player-weapon') {
+        this._changeOtherPlayerWeapon({ socketId: fromPeerId, weaponKey: data.weaponKey });
+      } else if (data.type === 'player-rolled') {
+        const other = this.otherPlayers.getChildren().find(p => p.socketId === fromPeerId);
+        if (other) {
+          this.tweens.add({ targets: other, angle: 360, duration: 350, onComplete: () => { if (other.active) other.setAngle(0); } });
+        }
+      } else if (data.type === 'host-position') {
+        // Guest recibe posición inicial del host para teletransportarse
+        if (!this._isHost) {
+          this.player.x = data.x + Phaser.Math.Between(-24, 24);
+          this.player.y = data.y + Phaser.Math.Between(-24, 24);
+          this.cameras.main.flash(300, 100, 100, 255);
+        }
+      }
+    });
+  }
+
+  _setupInviteEvents() {
+    // invite-accepted: el servidor nos dice nuestro rol
+    this.socket.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
+      if (role === 'host') {
+        // Somos el host (P1) — PeerJS ya está escuchando, no necesitamos hacer nada más.
+        // Los guests se conectarán ellos solos con nuestro peerId.
+        this._isHost = true;
+        this._mySlot = 'P1';
+        this._p2p.becomeHost();
+        this._showLocalPlayerLabel('P1');
+        this._notify(`🟢 ${guestCharacterName} aceptó. Esperando conexión...`, '#2ecc71');
+        this.game.events.emit('p2p-state-changed', 'P1', this._p2p.connections.size);
+      } else {
+        // Somos un guest — conectarnos al host por PeerJS
+        if (!hostPeerId) {
+          this._notify('Error: el host no tiene PeerJS activo.', '#e94560');
+          return;
+        }
+        this._isHost = false;
+        this._p2p.connectToHost(hostPeerId);
+
+        // P2PManager asigna nuestro slot al recibir el mensaje 'welcome' del host
+        const waitForSlot = setInterval(() => {
+          if (this._p2p.mySlot && this._p2p.mySlot !== 'P1') {
+            clearInterval(waitForSlot);
+            this._mySlot = this._p2p.mySlot;
+            this._showLocalPlayerLabel(this._mySlot);
+            this.game.events.emit('p2p-state-changed', this._mySlot, 1);
+          }
+        }, 100);
+
+        // Timeout de 10s
+        setTimeout(() => {
+          clearInterval(waitForSlot);
+          if (!this._mySlot) {
+            this._mySlot = 'P2'; // fallback
+            this._showLocalPlayerLabel('P2');
+          }
+        }, 10000);
+
+        this._notify(`🔵 Conectando al mundo de ${hostCharacterName}...`, '#88aaff');
+      }
+    });
+
+    this.socket.on('invite-sent', ({ toEmail }) => {
+      this._notify(`📨 Invitación enviada a ${toEmail}`, '#ffd700');
+    });
+
+    this.socket.on('invite-error', (msg) => {
+      this._notify(msg, '#e94560');
+      this.game.events.emit('invite-error', msg);
+    });
+
+    this.socket.on('invite-declined', ({ guestEmail }) => {
+      this._notify(`❌ ${guestEmail} rechazó la invitación.`, '#e94560');
+    });
+
+    this.socket.on('invite-received', (inviteData) => {
+      this.game.events.emit('invite-received', inviteData);
+    });
+
+    // ── Handlers de eventos desde main.js / UI ──
+
+    this._onInviteAccept = ({ inviteId }) => {
+      if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: true });
+    };
+    this._onInviteDecline = ({ inviteId }) => {
+      if (this.socket?.connected) this.socket.emit('invite-response', { inviteId, accepted: false });
+    };
+    this._onSendInvite = (toEmail) => {
+      if (this.socket?.connected) this.socket.emit('send-invite', { toEmail });
+    };
+    this._onLeaveWorld = () => {
+      if (this.socket?.connected) this.socket.emit('leave-world');
+      this._p2p.close();
+      // Reinicializar peer para seguir jugando solo
+      this._p2p.init().then(peerId => {
+        if (this.socket?.connected) this.socket.emit('update-peer-id', { peerJsId: peerId });
+      });
+      this._removeAllOtherPlayers();
+      this._removeLocalPlayerLabel();
+      this._isHost = false;
+      this._mySlot = null;
+      this.game.events.emit('p2p-state-changed', 'alone', 0);
+    };
+
+    this.game.events.on('invite-accept', this._onInviteAccept);
+    this.game.events.on('invite-decline', this._onInviteDecline);
+    this.game.events.on('send-invite', this._onSendInvite);
+    this.game.events.on('leave-world', this._onLeaveWorld);
+  }
+
+  _cleanup() {
+    window.removeEventListener('character-synced', this._characterSyncedListener);
+    this._unbindEvents();
+    if (this._onInviteAccept) this.game.events.off('invite-accept', this._onInviteAccept);
+    if (this._onInviteDecline) this.game.events.off('invite-decline', this._onInviteDecline);
+    if (this._onSendInvite) this.game.events.off('send-invite', this._onSendInvite);
+    if (this._onLeaveWorld) this.game.events.off('leave-world', this._onLeaveWorld);
+    if (this._p2p) this._p2p.close();
+    if (this.socket) this.socket.disconnect();
+  }
+
+  _notify(text, color) {
+    const uiScene = this.scene.get(SCENES.UI);
+    if (uiScene?.showNotification) uiScene.showNotification(text, color);
   }
 
 
