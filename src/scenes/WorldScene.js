@@ -901,288 +901,284 @@ export default class WorldScene extends Phaser.Scene {
       });
     }
 
-    const isCharged = chargeTime > 800; // 0.8s charge
-
     if (weapon.key === WEAPONS.SWORD.key) {
-      // Melee attack
-      let damage = weapon.damage;
-      let spriteKey = 'slash_effect';
-      let scale = 1.3;
-      let pushForce = 120;
-      let stunTime = 0;
-      
-      const step = comboStep || 0;
-      if (step === 1) {
-        // Thrust combo
-        damage = Math.ceil(damage * 1.25);
-        scale = 1.6;
-        pushForce = 85;
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification('⚔️ ¡Combo: Estocada! (+25%)', '#ffd700');
-      } else if (step === 2) {
-        // Overhead smash combo
-        damage = Math.ceil(damage * 1.6);
-        spriteKey = 'slash_flourish';
-        scale = 2.0;
-        pushForce = 250;
-        stunTime = 1000; // 1s stun
-        this.cameras.main.shake(150, 0.008);
-        const uiScene = this.scene.get(SCENES.UI);
-        if (uiScene?.showNotification) uiScene.showNotification('💥 ¡GOLPE DE MARTILLO! (+60% y Aturdir)', '#f1c40f');
-      }
-
-      if (isCharged) {
-        damage = weapon.damage * 2;
-        spriteKey = 'slash_flourish';
-        scale = 2.2;
-        pushForce = 220;
-      }
-
-      const slash = this.add.sprite(origin.x + dir.x * 16, origin.y + dir.y * 16, spriteKey);
-      slash.setDepth(15);
-
-      if (dir.x === 1) slash.setAngle(0);
-      else if (dir.x === -1) slash.setAngle(180);
-      else if (dir.y === 1) slash.setAngle(90);
-      else if (dir.y === -1) slash.setAngle(-90);
-
-      this.tweens.add({
-        targets: slash,
-        alpha: 0,
-        scale: scale,
-        duration: isCharged ? 250 : 150,
-        onComplete: () => slash.destroy()
-      });
-
-      const size = 24 * scale;
-      const hitbox = this.add.rectangle(slash.x, slash.y, size, size, 0xff0000, 0);
-      this.physics.add.existing(hitbox);
-      const hitEnemies = new Set();
-
-      const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
-        if (hitEnemies.has(enemy)) return;
-        hitEnemies.add(enemy);
-
-        // Thermal Explosion Reaction: Sword combo on Burning enemy
-        const isBurning = this.time.now < enemy.burnTimer;
-        if (step > 0 && isBurning) {
-          enemy.burnTimer = 0; // clear burn state
-          const bonusDamage = Math.ceil(damage * 1.25);
-          enemy.takeDamage(bonusDamage, dir, 'sword');
-
-          const uiScene = this.scene.get(SCENES.UI);
-          if (uiScene?.showNotification) {
-            uiScene.showNotification('🔥 ¡REACCIÓN: EXPLOSIÓN TÉRMICA! 🔥', '#e67e22');
-          }
-
-          // Extra impact visual and shake
-          this.cameras.main.shake(150, 0.012);
-
-          const fireExplosion = this.add.particles(0, 0, 'particle_gold', {
-            speed: { min: 50, max: 200 },
-            scale: { start: 1.5, end: 0 },
-            blendMode: 'ADD',
-            lifespan: 700,
-            quantity: 30
-          });
-          fireExplosion.explode(30, enemy.x, enemy.y);
-          this.time.delayedCall(1000, () => fireExplosion.destroy());
-
-          // Splash damage + high knockback to nearby enemies (64px)
-          this.enemiesGroup.getChildren().forEach(other => {
-            if (other !== enemy && other.active && !other.isDead) {
-              const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
-              if (d < 64) {
-                const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
-                const push = { x: Math.cos(angle), y: Math.sin(angle) };
-                other.takeDamage(Math.ceil(damage * 0.75), push, 'sword');
-                other.body.setVelocity(push.x * 300, push.y * 300);
-              }
-            }
-          });
-        } else {
-          enemy.takeDamage(damage, dir, 'sword');
-          enemy.body.setVelocity(dir.x * pushForce, dir.y * pushForce);
-        }
-
-        if (stunTime > 0) {
-          enemy.isStunned = true;
-          this.time.delayedCall(stunTime, () => {
-            if (enemy && enemy.active) enemy.isStunned = false;
-          });
-        }
-      });
-
-      this.time.delayedCall(isCharged ? 200 : 100, () => {
-        collider.destroy();
-        hitbox.destroy();
-      });
-
+      this._swordAttack(weapon, dir, origin, chargeTime > 800, comboStep || 0); // 0.8s charge
     } else if (weapon.key === WEAPONS.BOW.key) {
-      const speedVal = this.player.stats.speed || 5;
-      const chargeTarget = Math.max(400, 1000 - (speedVal - 5) * 50);
-      const isPerfect = chargeTime >= chargeTarget * 0.8 && chargeTime <= chargeTarget * 1.2;
-      const isOvercharged = chargeTime > chargeTarget * 1.5;
-      
-      let spriteKey = isPerfect ? 'arrow_charged' : 'arrow';
-      let damage = weapon.damage;
-      let speed = isPerfect ? 350 : 200;
-      let spreadAngle = 0;
-      
-      const uiScene = this.scene.get(SCENES.UI);
-      if (isPerfect) {
-        damage = Math.ceil(damage * 1.5);
-        if (uiScene?.showNotification) {
-          uiScene.showNotification('🎯 ¡TIRO PERFECTO! +50% Daño', '#2ecc71');
-        }
-      } else if (isOvercharged) {
-        damage = Math.ceil(damage * 0.5);
-        speed = 120;
-        const dexVal = this.player.stats.dexterity || 5;
-        spreadAngle = Phaser.Math.FloatBetween(-0.25, 0.25) * Math.max(0.1, 5 / dexVal); // More Dex = less shake
-        if (uiScene?.showNotification) {
-          uiScene.showNotification('💨 Tiro Inestable (Sin fuerza)', '#e94560');
-        }
-      }
-
-      const arrow = this.physics.add.sprite(origin.x, origin.y, spriteKey);
-      arrow.setDepth(12);
-
-      const baseAngle = dir.x === 1 ? 0 : dir.x === -1 ? Math.PI : dir.y === 1 ? Math.PI/2 : -Math.PI/2;
-      const finalAngle = baseAngle + spreadAngle;
-      arrow.setRotation(finalAngle);
-
-      arrow.setVelocity(Math.cos(finalAngle) * speed, Math.sin(finalAngle) * speed);
-
-      this.physics.add.collider(arrow, this.mapLayer, () => arrow.destroy());
-      
-      arrow.hitEnemies = new Set();
-      this.physics.add.overlap(arrow, this.enemiesGroup, (arr, enemy) => {
-        if (!arrow.hitEnemies.has(enemy)) {
-          arrow.hitEnemies.add(enemy);
-
-          // Shatter Reaction: Perfect arrow on Frozen enemy
-          const isFrozen = this.time.now < enemy.frostTimer;
-          if (isPerfect && isFrozen) {
-            enemy.frostTimer = 0; // clear frost state
-            const bonusDamage = Math.ceil(damage * 1.5);
-            enemy.takeDamage(bonusDamage, dir, 'bow');
-            enemy.body.setVelocity(Math.cos(finalAngle) * 200, Math.sin(finalAngle) * 200);
-
-            const ui = this.scene.get(SCENES.UI);
-            if (ui?.showNotification) {
-              ui.showNotification('❄️ ¡REACCIÓN: SHATTER DE HIELO! ❄️', '#3498db');
-            }
-
-            // Ice shards explosion
-            const iceExplosion = this.add.particles(0, 0, 'particle_purple', {
-              speed: { min: 40, max: 150 },
-              scale: { start: 1.2, end: 0 },
-              blendMode: 'ADD',
-              lifespan: 600,
-              quantity: 25
-            });
-            iceExplosion.explode(25, enemy.x, enemy.y);
-            this.time.delayedCall(1000, () => iceExplosion.destroy());
-
-            // Splash damage to nearby enemies (48px)
-            this.enemiesGroup.getChildren().forEach(other => {
-              if (other !== enemy && other.active && !other.isDead) {
-                const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
-                if (d < 48) {
-                  const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
-                  other.takeDamage(Math.ceil(damage * 0.75), { x: Math.cos(angle), y: Math.sin(angle) }, 'bow');
-                }
-              }
-            });
-          } else {
-            enemy.takeDamage(isPerfect ? damage * 1.5 : damage, dir, 'bow');
-            enemy.body.setVelocity(Math.cos(finalAngle) * (isPerfect ? 150 : 50), Math.sin(finalAngle) * (isPerfect ? 150 : 50));
-          }
-
-          if (!isPerfect) arr.destroy();
-        }
-      });
-
-      this.time.delayedCall(isPerfect ? 2000 : 1500, () => { if (arrow.active) arrow.destroy() });
-
+      this._bowAttack(weapon, dir, origin, chargeTime);
     } else if (weapon.key === WEAPONS.MAGIC.key) {
-      const isAoE = chargeTime > 1000; // 1.0s charge
-      
-      if (isAoE) {
-        // Explode outward (Ignition)
-        const aoe = this.add.sprite(origin.x, origin.y, 'magic_aoe');
-        aoe.setDepth(11);
-        
-        this.tweens.add({
-          targets: aoe,
-          scale: { start: 0.1, end: 2.5 },
-          alpha: { start: 1, end: 0 },
-          duration: 400,
-          onComplete: () => aoe.destroy()
-        });
-        
-        const hitbox = this.add.circle(origin.x, origin.y, 40, 0xff0000, 0);
-        this.physics.add.existing(hitbox);
-        const hitEnemies = new Set();
-        
-        const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
-          if (hitEnemies.has(enemy)) return;
-          hitEnemies.add(enemy);
-
-          // Push away from player
-          const angle = Phaser.Math.Angle.Between(origin.x, origin.y, enemy.x, enemy.y);
-          const pushDir = { x: Math.cos(angle), y: Math.sin(angle) };
-          enemy.takeDamage(weapon.damage * 2, pushDir, 'magic');
-          enemy.body.setVelocity(pushDir.x * 250, pushDir.y * 250); // huge push
-
-          // Apply Ignition (Burn status)
-          enemy.burnTimer = this.time.now + 4000; // 4s burn DOT
-          enemy.burnDamageTimer = this.time.now + 500;
-        });
-        
-        this.cameras.main.shake(150, 0.01);
-        this.time.delayedCall(150, () => {
-          collider.destroy();
-          hitbox.destroy();
-        });
-        
+      if (chargeTime > 1000) { // 1.0s charge
+        this._magicAoE(weapon, origin);
       } else {
-        // Frost Bolt basic orb
-        const orb = this.physics.add.sprite(origin.x, origin.y, 'magic_orb');
-        orb.setDepth(12);
-        orb.setVelocity(dir.x * 150, dir.y * 150);
-
-        const particles = this.add.particles(0, 0, 'particle_purple', {
-          speed: 10,
-          scale: { start: 1, end: 0 },
-          blendMode: 'ADD',
-          lifespan: 300
-        });
-        particles.startFollow(orb);
-
-        this.physics.add.collider(orb, this.mapLayer, () => {
-          orb.destroy();
-          particles.destroy();
-        });
-        this.physics.add.overlap(orb, this.enemiesGroup, (o, enemy) => {
-          enemy.takeDamage(weapon.damage, dir, 'magic');
-
-          // Apply Frost (Slow status)
-          enemy.frostTimer = this.time.now + 5000; // 5s slow
-
-          o.destroy();
-          particles.destroy();
-        });
-
-        this.time.delayedCall(2000, () => {
-          if (orb.active) {
-            orb.destroy();
-            particles.destroy();
-          }
-        });
+        this._frostBolt(weapon, dir, origin);
       }
     }
+  }
+
+  _swordAttack(weapon, dir, origin, isCharged, step) {
+    let damage = weapon.damage;
+    let spriteKey = 'slash_effect';
+    let scale = 1.3;
+    let pushForce = 120;
+    let stunTime = 0;
+    
+    if (step === 1) {
+      // Thrust combo
+      damage = Math.ceil(damage * 1.25);
+      scale = 1.6;
+      pushForce = 85;
+      this._notify('⚔️ ¡Combo: Estocada! (+25%)', '#ffd700');
+    } else if (step === 2) {
+      // Overhead smash combo
+      damage = Math.ceil(damage * 1.6);
+      spriteKey = 'slash_flourish';
+      scale = 2.0;
+      pushForce = 250;
+      stunTime = 1000; // 1s stun
+      this.cameras.main.shake(150, 0.008);
+      this._notify('💥 ¡GOLPE DE MARTILLO! (+60% y Aturdir)', '#f1c40f');
+    }
+
+    if (isCharged) {
+      damage = weapon.damage * 2;
+      spriteKey = 'slash_flourish';
+      scale = 2.2;
+      pushForce = 220;
+    }
+
+    const slash = this.add.sprite(origin.x + dir.x * 16, origin.y + dir.y * 16, spriteKey);
+    slash.setDepth(15);
+
+    if (dir.x === 1) slash.setAngle(0);
+    else if (dir.x === -1) slash.setAngle(180);
+    else if (dir.y === 1) slash.setAngle(90);
+    else if (dir.y === -1) slash.setAngle(-90);
+
+    this.tweens.add({
+      targets: slash,
+      alpha: 0,
+      scale: scale,
+      duration: isCharged ? 250 : 150,
+      onComplete: () => slash.destroy()
+    });
+
+    const size = 24 * scale;
+    const hitbox = this.add.rectangle(slash.x, slash.y, size, size, 0xff0000, 0);
+    this.physics.add.existing(hitbox);
+    const hitEnemies = new Set();
+
+    const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
+      if (hitEnemies.has(enemy)) return;
+      hitEnemies.add(enemy);
+
+      const isBurning = this.time.now < enemy.burnTimer;
+      if (step > 0 && isBurning) {
+        this._thermalExplosion(enemy, damage, dir);
+      } else {
+        enemy.takeDamage(damage, dir, 'sword');
+        enemy.body.setVelocity(dir.x * pushForce, dir.y * pushForce);
+      }
+
+      if (stunTime > 0) {
+        enemy.isStunned = true;
+        this.time.delayedCall(stunTime, () => {
+          if (enemy && enemy.active) enemy.isStunned = false;
+        });
+      }
+    });
+
+    this.time.delayedCall(isCharged ? 200 : 100, () => {
+      collider.destroy();
+      hitbox.destroy();
+    });
+  }
+
+  // Reaction: sword combo on a burning enemy
+  _thermalExplosion(enemy, damage, dir) {
+    enemy.burnTimer = 0; // clear burn state
+    const bonusDamage = Math.ceil(damage * 1.25);
+    enemy.takeDamage(bonusDamage, dir, 'sword');
+
+    this._notify('🔥 ¡REACCIÓN: EXPLOSIÓN TÉRMICA! 🔥', '#e67e22');
+    this.cameras.main.shake(150, 0.012);
+
+    const fireExplosion = this.add.particles(0, 0, 'particle_gold', {
+      speed: { min: 50, max: 200 },
+      scale: { start: 1.5, end: 0 },
+      blendMode: 'ADD',
+      lifespan: 700,
+      quantity: 30
+    });
+    fireExplosion.explode(30, enemy.x, enemy.y);
+    this.time.delayedCall(1000, () => fireExplosion.destroy());
+
+    // Splash damage + high knockback to nearby enemies (64px)
+    this.enemiesGroup.getChildren().forEach(other => {
+      if (other !== enemy && other.active && !other.isDead) {
+        const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+        if (d < 64) {
+          const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
+          const push = { x: Math.cos(angle), y: Math.sin(angle) };
+          other.takeDamage(Math.ceil(damage * 0.75), push, 'sword');
+          other.body.setVelocity(push.x * 300, push.y * 300);
+        }
+      }
+    });
+  }
+
+  _bowAttack(weapon, dir, origin, chargeTime) {
+    const speedVal = this.player.stats.speed || 5;
+    const chargeTarget = Math.max(400, 1000 - (speedVal - 5) * 50);
+    const isPerfect = chargeTime >= chargeTarget * 0.8 && chargeTime <= chargeTarget * 1.2;
+    const isOvercharged = chargeTime > chargeTarget * 1.5;
+    
+    let spriteKey = isPerfect ? 'arrow_charged' : 'arrow';
+    let damage = weapon.damage;
+    let speed = isPerfect ? 350 : 200;
+    let spreadAngle = 0;
+    
+    if (isPerfect) {
+      damage = Math.ceil(damage * 1.5);
+      this._notify('🎯 ¡TIRO PERFECTO! +50% Daño', '#2ecc71');
+    } else if (isOvercharged) {
+      damage = Math.ceil(damage * 0.5);
+      speed = 120;
+      const dexVal = this.player.stats.dexterity || 5;
+      spreadAngle = Phaser.Math.FloatBetween(-0.25, 0.25) * Math.max(0.1, 5 / dexVal); // More Dex = less shake
+      this._notify('💨 Tiro Inestable (Sin fuerza)', '#e94560');
+    }
+
+    const arrow = this.physics.add.sprite(origin.x, origin.y, spriteKey);
+    arrow.setDepth(12);
+
+    const baseAngle = dir.x === 1 ? 0 : dir.x === -1 ? Math.PI : dir.y === 1 ? Math.PI/2 : -Math.PI/2;
+    const finalAngle = baseAngle + spreadAngle;
+    arrow.setRotation(finalAngle);
+
+    arrow.setVelocity(Math.cos(finalAngle) * speed, Math.sin(finalAngle) * speed);
+
+    this.physics.add.collider(arrow, this.mapLayer, () => arrow.destroy());
+    
+    arrow.hitEnemies = new Set();
+    this.physics.add.overlap(arrow, this.enemiesGroup, (arr, enemy) => {
+      if (!arrow.hitEnemies.has(enemy)) {
+        arrow.hitEnemies.add(enemy);
+
+        const isFrozen = this.time.now < enemy.frostTimer;
+        if (isPerfect && isFrozen) {
+          this._iceShatter(enemy, damage, dir, finalAngle);
+        } else {
+          enemy.takeDamage(isPerfect ? damage * 1.5 : damage, dir, 'bow');
+          enemy.body.setVelocity(Math.cos(finalAngle) * (isPerfect ? 150 : 50), Math.sin(finalAngle) * (isPerfect ? 150 : 50));
+        }
+
+        if (!isPerfect) arr.destroy();
+      }
+    });
+
+    this.time.delayedCall(isPerfect ? 2000 : 1500, () => { if (arrow.active) arrow.destroy() });
+  }
+
+  // Reaction: perfect arrow on a frozen enemy
+  _iceShatter(enemy, damage, dir, angle) {
+    enemy.frostTimer = 0; // clear frost state
+    const bonusDamage = Math.ceil(damage * 1.5);
+    enemy.takeDamage(bonusDamage, dir, 'bow');
+    enemy.body.setVelocity(Math.cos(angle) * 200, Math.sin(angle) * 200);
+
+    this._notify('❄️ ¡REACCIÓN: SHATTER DE HIELO! ❄️', '#3498db');
+
+    const iceExplosion = this.add.particles(0, 0, 'particle_purple', {
+      speed: { min: 40, max: 150 },
+      scale: { start: 1.2, end: 0 },
+      blendMode: 'ADD',
+      lifespan: 600,
+      quantity: 25
+    });
+    iceExplosion.explode(25, enemy.x, enemy.y);
+    this.time.delayedCall(1000, () => iceExplosion.destroy());
+
+    // Splash damage to nearby enemies (48px)
+    this.enemiesGroup.getChildren().forEach(other => {
+      if (other !== enemy && other.active && !other.isDead) {
+        const d = Phaser.Math.Distance.Between(enemy.x, enemy.y, other.x, other.y);
+        if (d < 48) {
+          const a = Phaser.Math.Angle.Between(enemy.x, enemy.y, other.x, other.y);
+          other.takeDamage(Math.ceil(damage * 0.75), { x: Math.cos(a), y: Math.sin(a) }, 'bow');
+        }
+      }
+    });
+  }
+
+  // Charged magic: explodes outward and ignites enemies (burn)
+  _magicAoE(weapon, origin) {
+    const aoe = this.add.sprite(origin.x, origin.y, 'magic_aoe');
+    aoe.setDepth(11);
+    
+    this.tweens.add({
+      targets: aoe,
+      scale: { start: 0.1, end: 2.5 },
+      alpha: { start: 1, end: 0 },
+      duration: 400,
+      onComplete: () => aoe.destroy()
+    });
+    
+    const hitbox = this.add.circle(origin.x, origin.y, 40, 0xff0000, 0);
+    this.physics.add.existing(hitbox);
+    const hitEnemies = new Set();
+    
+    const collider = this.physics.add.overlap(hitbox, this.enemiesGroup, (box, enemy) => {
+      if (hitEnemies.has(enemy)) return;
+      hitEnemies.add(enemy);
+
+      // Push away from player
+      const angle = Phaser.Math.Angle.Between(origin.x, origin.y, enemy.x, enemy.y);
+      const pushDir = { x: Math.cos(angle), y: Math.sin(angle) };
+      enemy.takeDamage(weapon.damage * 2, pushDir, 'magic');
+      enemy.body.setVelocity(pushDir.x * 250, pushDir.y * 250); // huge push
+
+      enemy.burnTimer = this.time.now + 4000; // 4s burn DOT
+      enemy.burnDamageTimer = this.time.now + 500;
+    });
+    
+    this.cameras.main.shake(150, 0.01);
+    this.time.delayedCall(150, () => {
+      collider.destroy();
+      hitbox.destroy();
+    });
+  }
+
+  // Basic magic orb: slows the enemy it hits (frost)
+  _frostBolt(weapon, dir, origin) {
+    const orb = this.physics.add.sprite(origin.x, origin.y, 'magic_orb');
+    orb.setDepth(12);
+    orb.setVelocity(dir.x * 150, dir.y * 150);
+
+    const particles = this.add.particles(0, 0, 'particle_purple', {
+      speed: 10,
+      scale: { start: 1, end: 0 },
+      blendMode: 'ADD',
+      lifespan: 300
+    });
+    particles.startFollow(orb);
+
+    this.physics.add.collider(orb, this.mapLayer, () => {
+      orb.destroy();
+      particles.destroy();
+    });
+    this.physics.add.overlap(orb, this.enemiesGroup, (o, enemy) => {
+      enemy.takeDamage(weapon.damage, dir, 'magic');
+      enemy.frostTimer = this.time.now + 5000; // 5s slow
+
+      o.destroy();
+      particles.destroy();
+    });
+
+    this.time.delayedCall(2000, () => {
+      if (orb.active) {
+        orb.destroy();
+        particles.destroy();
+      }
+    });
   }
 
   handleSpellcast(data) {
