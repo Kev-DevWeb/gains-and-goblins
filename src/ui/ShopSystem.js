@@ -1,5 +1,28 @@
 import SaveSystem from '../utils/SaveSystem.js';
 
+const SHOP_ITEMS = [
+  {
+    id: 'potion_hp',
+    name: 'Agua Mineral',
+    shortName: 'Agua Mineral',
+    icon: '🥤',
+    price: 25,
+    effect: 'Restaura 30 HP',
+    color: '#3ac55e',
+    thanks: '¡Aquí tienes tu Agua Mineral bien fría!'
+  },
+  {
+    id: 'potion_mp',
+    name: 'Café Cargado',
+    shortName: 'Café',
+    icon: '☕',
+    price: 25,
+    effect: 'Restaura 20 Maná',
+    color: '#4488ff',
+    thanks: '¡Aquí tienes tu Café bien cargado!'
+  }
+];
+
 export default class ShopSystem {
   constructor(game, dialogueSystem) {
     this.game = game;
@@ -7,69 +30,41 @@ export default class ShopSystem {
   }
 
   openShop(player) {
-    const choices = [
-      {
-        text: 'Agua Mineral (25 Oro) - Restaura 30 HP',
-        callback: () => this._buyHealthPotion(player)
-      },
-      {
-        text: 'Café Cargado (25 Oro) - Restaura 20 Maná',
-        callback: () => this._buyManaPotion(player)
-      },
-      {
-        text: 'No, gracias. (Salir)',
-        callback: () => {
-          this.dialogue.show('Recepcionista', ['Vuelve cuando necesites hidratarte.']);
-        }
+    const choices = SHOP_ITEMS.map(item => ({
+      text: `${item.name} (${item.price} Oro) - ${item.effect}`,
+      callback: () => this._buyItem(player, item)
+    }));
+    choices.push({
+      text: 'No, gracias. (Salir)',
+      callback: () => {
+        this.dialogue.show('Recepcionista', ['Vuelve cuando necesites hidratarte.']);
       }
-    ];
+    });
 
     this.dialogue.showChoices('Recepcionista', '¿Qué te gustaría comprar hoy?', choices);
   }
 
-  async _buyHealthPotion(player) {
-    if (player.gold >= 25) {
-      const updatedCharacter = await SaveSystem.buyItem('potion_hp', 25, 'Agua Mineral', '🥤', 'consumable');
-      if (updatedCharacter) {
-        player.gold = updatedCharacter.gold;
-        player.inventory = updatedCharacter.inventory;
-        
-        this.game.events.emit('update-gold', player.gold);
-        this.game.events.emit('update-inventory', player.inventory);
-        this.game.events.emit('show-notification', 'Compraste Agua Mineral', '#3ac55e');
-        
-        this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Agua Mineral bien fría!', '¿Algo más?'], () => {
-          // Re-open shop
-          setTimeout(() => this.openShop(player), 100);
-        });
-      } else {
-        this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
-      }
-    } else {
-      this.dialogue.show('Recepcionista', ['No tienes suficiente oro para comprar Agua Mineral.']);
+  async _buyItem(player, item) {
+    if (player.gold < item.price) {
+      this.dialogue.show('Recepcionista', [`No tienes suficiente oro para comprar ${item.shortName}.`]);
+      return;
     }
-  }
 
-  async _buyManaPotion(player) {
-    if (player.gold >= 25) {
-      const updatedCharacter = await SaveSystem.buyItem('potion_mp', 25, 'Café Cargado', '☕', 'consumable');
-      if (updatedCharacter) {
-        player.gold = updatedCharacter.gold;
-        player.inventory = updatedCharacter.inventory;
-        
-        this.game.events.emit('update-gold', player.gold);
-        this.game.events.emit('update-inventory', player.inventory);
-        this.game.events.emit('show-notification', 'Compraste Café Cargado', '#4488ff');
-        
-        this.dialogue.show('Recepcionista', ['¡Aquí tienes tu Café bien cargado!', '¿Algo más?'], () => {
-          // Re-open shop
-          setTimeout(() => this.openShop(player), 100);
-        });
-      } else {
-        this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
-      }
-    } else {
-      this.dialogue.show('Recepcionista', ['No tienes suficiente oro para comprar Café.']);
+    const updatedCharacter = await SaveSystem.buyItem(item.id, item.price, item.name, item.icon, 'consumable');
+    if (!updatedCharacter) {
+      this.game.events.emit('show-notification', 'Error de red en compra', '#e94560');
+      return;
     }
+
+    player.gold = updatedCharacter.gold;
+    player.inventory = updatedCharacter.inventory;
+
+    this.game.events.emit('update-gold', player.gold);
+    this.game.events.emit('update-inventory', player.inventory);
+    this.game.events.emit('show-notification', `Compraste ${item.name}`, item.color);
+
+    this.dialogue.show('Recepcionista', [item.thanks, '¿Algo más?'], () => {
+      setTimeout(() => this.openShop(player), 100);
+    });
   }
 }
