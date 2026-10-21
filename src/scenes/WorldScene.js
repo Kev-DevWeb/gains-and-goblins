@@ -1067,7 +1067,7 @@ export default class WorldScene extends Phaser.Scene {
         if (isPerfect && isFrozen) {
           this._iceShatter(enemy, damage, dir, finalAngle);
         } else {
-          enemy.takeDamage(isPerfect ? damage * 1.5 : damage, dir, 'bow');
+          enemy.takeDamage(damage, dir, 'bow');
           enemy.body.setVelocity(Math.cos(finalAngle) * (isPerfect ? 150 : 50), Math.sin(finalAngle) * (isPerfect ? 150 : 50));
         }
 
