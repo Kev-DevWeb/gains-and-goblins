@@ -7,6 +7,8 @@
 
 const SAVE_KEY = 'gains_goblins_save';
 const USER_ID_KEY = 'gains_goblins_user_id';
+// Set when the server reports a weekly stat decay before the world scene exists
+const PENDING_DECAY_KEY = 'gains_goblins_pending_decay';
 
 function getBackendUrl() {
   const configuredUrl = import.meta.env.VITE_API_URL?.trim();
@@ -28,6 +30,19 @@ const BACKEND_URL = getBackendUrl();
 export default class SaveSystem {
   static getBackendUrl() {
     return getBackendUrl();
+  }
+
+  /**
+   * Returns true once if a weekly stat decay happened while loading, then clears it.
+   */
+  static takePendingDecayNotice() {
+    try {
+      const pending = localStorage.getItem(PENDING_DECAY_KEY) === '1';
+      localStorage.removeItem(PENDING_DECAY_KEY);
+      return pending;
+    } catch (e) {
+      return false;
+    }
   }
 
   static getUserId() {
@@ -87,6 +102,7 @@ export default class SaveSystem {
       
       this.setUserId(data.character.userId);
       localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+      if (data.decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
       return { success: true, character: data.character };
     } catch (err) {
       return { success: false, error: err.message };
@@ -110,8 +126,9 @@ export default class SaveSystem {
         }
         return null;
       }
-      const data = await response.json();
+      const { decayApplied, ...data } = await response.json();
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      if (decayApplied) localStorage.setItem(PENDING_DECAY_KEY, '1');
       return data;
     } catch (err) {
       console.warn('[SaveSystem] Sync failed during load, loading from cache:', err);

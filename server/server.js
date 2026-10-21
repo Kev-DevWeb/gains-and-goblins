@@ -133,11 +133,12 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Perform check for long-term inactivity on login
     let character = user.character;
+    let decayApplied = false;
     if (character) {
-      character = await checkInactivityAndDecay(character.id);
+      ({ character, weeklyDecayApplied: decayApplied } = await checkInactivityAndDecay(character.id));
     }
 
-    res.json({ message: 'Login exitoso.', userId: user.id, character });
+    res.json({ message: 'Login exitoso.', userId: user.id, character, decayApplied });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al iniciar sesión.' });
@@ -158,10 +159,9 @@ app.get('/api/character/:userId', async (req, res) => {
       return res.status(444).json({ error: 'Personaje no encontrado.' });
     }
 
-    // Perform check on fetch
-    character = await checkInactivityAndDecay(character.id);
+    const { character: checked, weeklyDecayApplied } = await checkInactivityAndDecay(character.id);
 
-    res.json(character);
+    res.json({ ...checked, decayApplied: weeklyDecayApplied });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al obtener personaje.' });
@@ -196,7 +196,8 @@ app.post('/api/character/sync', async (req, res) => {
       });
     }
 
-    character = await checkInactivityAndDecay(character.id);
+    const decayCheck = await checkInactivityAndDecay(character.id);
+    character = decayCheck.character;
 
     const computedXp = xp !== undefined ? xp : character.xp;
     const { level: computedLevel, blockedLevelUp } = computeLevelUp(character.level, computedXp, stats || pickStats(character));
@@ -239,7 +240,7 @@ app.post('/api/character/sync', async (req, res) => {
       character: updatedCharacter,
       blockedLevelUp,
       requiredStatValue: 5 + updatedCharacter.level,
-      decayApplied: character.lastDecayAppliedAt.getTime() !== updatedCharacter.lastDecayAppliedAt.getTime() && updatedCharacter.lastDecayAppliedAt > character.lastDecayAppliedAt
+      decayApplied: decayCheck.weeklyDecayApplied
     });
   } catch (error) {
     console.error(error);
@@ -283,12 +284,13 @@ function computeLevelUp(level, xp, stats) {
   return { level, blockedLevelUp: false };
 }
 
+// Returns { character, weeklyDecayApplied } so callers can tell the player their stats dropped
 async function checkInactivityAndDecay(characterId) {
   const character = await prisma.character.findUnique({
     where: { id: characterId }
   });
 
-  if (!character) return null;
+  if (!character) return { character: null, weeklyDecayApplied: false };
 
   const now = new Date();
   let updatedCharacter = character;
@@ -392,6 +394,7 @@ async function checkInactivityAndDecay(characterId) {
   }
 
   // 3. Weekly Stat Decay Check (< 3 activities per week)
+  let weeklyDecayApplied = false;
   const msSinceLastDecay = now.getTime() - updatedCharacter.lastDecayAppliedAt.getTime();
   const daysSinceLastDecay = msSinceLastDecay / (1000 * 60 * 60 * 24);
 
@@ -408,6 +411,7 @@ async function checkInactivityAndDecay(characterId) {
     if (count < 3) {
       // Decay stats by 1 point (min 5)
       const decay = (val) => Math.max(5, val - 1);
+      weeklyDecayApplied = STAT_KEYS.some(key => decay(updatedCharacter[key]) !== updatedCharacter[key]);
       updatedCharacter = await prisma.character.update({
         where: { id: characterId },
         data: {
@@ -433,7 +437,7 @@ async function checkInactivityAndDecay(characterId) {
     }
   }
 
-  return updatedCharacter;
+  return { character: updatedCharacter, weeklyDecayApplied };
 }
 
 // ── SECURE SERVER-AUTHORITATIVE ENDPOINTS ─────────────────────

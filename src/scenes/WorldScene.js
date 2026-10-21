@@ -12,6 +12,8 @@ import SaveSystem from '../utils/SaveSystem.js';
 import { io } from 'socket.io-client';
 import P2PManager from '../utils/P2PManager.js';
 
+const DECAY_NOTICE = 'Tus stats bajaron 1 punto por falta de actividades esta semana.';
+
 export default class WorldScene extends Phaser.Scene {
   constructor() {
     super(SCENES.WORLD);
@@ -353,6 +355,9 @@ export default class WorldScene extends Phaser.Scene {
     if (unspent.length > 0) {
       this._notify('¡Tienes puntos sin gastar! (TAB → Asignar)', '#f1c40f');
     }
+    if (SaveSystem.takePendingDecayNotice()) {
+      this._notify(DECAY_NOTICE, '#e94560');
+    }
   }
 
   _startTimers() {
@@ -412,7 +417,7 @@ export default class WorldScene extends Phaser.Scene {
         this._emitPlayerState();
 
         if (decayApplied) {
-          this._notify("Tus stats bajaron 1 punto por falta de actividades esta semana.", "#e94560");
+          this._notify(DECAY_NOTICE, "#e94560");
         }
         if (blockedLevelUp) {
           this._notify(`Nivel bloqueado: sube todos tus atributos a ${requiredStatValue} para subir nivel.`, "#e94560");
