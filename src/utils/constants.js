@@ -10,8 +10,16 @@ export const TILE_SIZE = 16;
 export const SCALE = 1; // Phaser will handle zoom
 
 // ── Map ──────────────────────────────────────────────────────
-export const MAP_WIDTH = 60;  // tiles
-export const MAP_HEIGHT = 45; // tiles
+// Size in tiles of each map
+export const MAP_SIZES = {
+  guild: { width: 40, height: 30 },
+  deeproot: { width: 60, height: 45 },
+  cueva_goblin: { width: 60, height: 45 },
+};
+
+export function getMapSize(mapId) {
+  return MAP_SIZES[mapId] || MAP_SIZES.deeproot;
+}
 
 // ── Player ───────────────────────────────────────────────────
 export const PLAYER_SPEED = 120;
@@ -169,6 +177,15 @@ export const TILES = {
   STUDY_TABLE: 28,
   GUILD_BANNER: 29,
   RECEPTION_DESK: 30,
+  GUILD_WALL_TORCH: 31,
+  GUILD_RUG: 32,
+  GUILD_PLANT: 33,
+  TRAINING_DUMMY: 34,
+  GUILD_FLAGSTONE: 35,
+  GUILD_CHEST: 36,
+  SIGN_EXIT: 37,
+  SIGN_ARENA: 38,
+  ARENA_DUMMY: 39,
 };
 
 // ── Solid Tiles (impassable) ─────────────────────────────────
@@ -189,6 +206,13 @@ export const SOLID_TILES = [
   TILES.STUDY_TABLE,
   TILES.GUILD_BANNER,
   TILES.RECEPTION_DESK,
+  TILES.GUILD_WALL_TORCH,
+  TILES.GUILD_PLANT,
+  TILES.TRAINING_DUMMY,
+  TILES.GUILD_CHEST,
+  TILES.SIGN_EXIT,
+  TILES.SIGN_ARENA,
+  TILES.ARENA_DUMMY,
 ];
 
 // ── Tile Colors (16-bit pixel-art palette) ───────────────────
@@ -211,8 +235,6 @@ export const TILE_COLORS = {
   [TILES.SAND]:         { primary: 0xe8d5b7, secondary: 0xd8c5a7, detail: 0xf0ddc0 },
   [TILES.CHEST]:        { primary: 0x8b6914, secondary: 0xffd700, detail: 0x5a3a1a },
   [TILES.SIGN]:         { primary: 0x8b6914, secondary: 0x5a3a1a, detail: 0xc4a35a },
-  [TILES.ARENA_FLOOR]:  { primary: 0xc0392b, secondary: 0xe74c3c, detail: 0x7f8c8d }, // Reddish combat floor
-  [TILES.BULLETIN_BOARD]:{ primary: 0x7d4e00, secondary: 0xffd700, detail: 0xe8d5b7 }, // Wooden board with gold notices
   [TILES.DUNGEON_FLOOR]: { primary: 0x2b2b2b, secondary: 0x3b3b3b, detail: 0x1b1b1b }, // Dark stone floor
   [TILES.DUNGEON_WALL]:  { primary: 0x111111, secondary: 0x222222, detail: 0x050505 }, // Pitch black/dark grey wall
   [TILES.LAVA]:          { primary: 0xff4500, secondary: 0xd93800, detail: 0xff8c00 }, // Bright orange/red lava

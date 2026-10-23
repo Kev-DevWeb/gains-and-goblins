@@ -7,7 +7,7 @@ import DialogueSystem from '../ui/DialogueSystem.js';
 import ShopSystem from '../ui/ShopSystem.js';
 import DailyMissionSystem from '../utils/DailyMissionSystem.js';
 import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns } from '../utils/MapGenerator.js';
-import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
+import { TILE_SIZE, getMapSize, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
 import Lobby from '../utils/Lobby.js';
 import P2PManager from '../utils/P2PManager.js';
@@ -57,10 +57,14 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   _createMap() {
-    const mapData = generateMap(this.mapId, MAP_WIDTH, MAP_HEIGHT);
+    const { width, height } = getMapSize(this.mapId);
+    this._mapWidth = width;
+    this._mapHeight = height;
+    const mapData = generateMap(this.mapId, width, height);
     this._mapData = mapData; 
     const map = this.make.tilemap({ data: mapData, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
-    const tileset = map.addTilesetImage('tileset');
+    // Tiles are stored with a 1 px extruded border (see BootScene) so zooming never samples a neighbor
+    const tileset = map.addTilesetImage('tileset', 'tileset', TILE_SIZE, TILE_SIZE, 1, 2);
     this.mapLayer = map.createLayer(0, tileset, 0, 0);
     this.mapLayer.setCollision(SOLID_TILES);
 
@@ -87,7 +91,7 @@ export default class WorldScene extends Phaser.Scene {
 
   _setupCamera() {
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setBounds(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
+    this.cameras.main.setBounds(0, 0, this._mapWidth * TILE_SIZE, this._mapHeight * TILE_SIZE);
     this.cameras.main.setZoom(2.5);
     this.cameras.main.fadeIn(800, 0, 0, 0);
   }
@@ -95,7 +99,7 @@ export default class WorldScene extends Phaser.Scene {
   _showZoneTitle() {
     const zoneNames = { 'guild': 'Gremio de Héroes', 'deeproot': 'Deeproot', 'cueva_goblin': 'Cueva Goblin' };
     const titleText = this.add.text(
-      (MAP_WIDTH * TILE_SIZE) / 2, 
+      (this._mapWidth * TILE_SIZE) / 2, 
       this.player.y - 100, 
       zoneNames[this.mapId] || this.mapId,
       { fontFamily: 'MedievalSharp', fontSize: '32px', color: '#ffd700', stroke: '#000', strokeThickness: 4 }
@@ -127,7 +131,7 @@ export default class WorldScene extends Phaser.Scene {
   _createVisionMask() {
     this.visionMask = this.make.graphics();
     this.visionMask.fillStyle(0x000000, 0.98); // Very dark
-    this.visionMask.fillRect(0, 0, MAP_WIDTH * TILE_SIZE, MAP_HEIGHT * TILE_SIZE);
+    this.visionMask.fillRect(0, 0, this._mapWidth * TILE_SIZE, this._mapHeight * TILE_SIZE);
     this.visionMask.setDepth(90); // Above map and entities, below UI/Text
     
     this.visionEraser = this.make.graphics();
@@ -151,38 +155,38 @@ export default class WorldScene extends Phaser.Scene {
     this.npcsGroup = this.add.group();
     
     if (this.mapId === 'guild') {
-      // 1. Maestro (Center)
-      const villager = new NPC(this, 30 * TILE_SIZE, 17 * TILE_SIZE, 'npc_villager', {
+      // 1. Maestro (Gran salón)
+      const villager = new NPC(this, 20 * TILE_SIZE, 13 * TILE_SIZE, 'npc_villager', {
         name: 'Maestro',
         dialogueKey: 'tutorial',
-        wanderRadius: 10
+        wanderRadius: 4
       });
-      // 2. Recepcionista (Gym Front Desk)
-      const receptionist = new NPC(this, 30 * TILE_SIZE, 8 * TILE_SIZE, 'npc_receptionist', {
+      // 2. Recepcionista (between the two halves of the counter)
+      const receptionist = new NPC(this, 20 * TILE_SIZE, 4 * TILE_SIZE, 'npc_receptionist', {
         name: 'Recepcionista',
         dialogueKey: 'receptionist',
         wanderRadius: 0
       });
-      // 3. Sabio (Library / Magic Zone)
-      const alchemist = new NPC(this, 48 * TILE_SIZE, 9 * TILE_SIZE, 'npc_sage', {
+      // 3. Sabio (Biblioteca)
+      const alchemist = new NPC(this, 32.5 * TILE_SIZE, 6 * TILE_SIZE, 'npc_sage', {
         name: 'Librero Sabio',
         dialogueKey: 'sage_librarian',
         wanderRadius: 0
       });
-      // 4. Entrenador de Fuerza (Weights Zone - Top Left)
-      const coachStrength = new NPC(this, 8 * TILE_SIZE, 9 * TILE_SIZE, 'npc_coach_strength', {
+      // 4. Entrenador de Fuerza (Sala de pesas)
+      const coachStrength = new NPC(this, 6.5 * TILE_SIZE, 7 * TILE_SIZE, 'npc_coach_strength', {
         name: 'Entrenador de Fuerza',
         dialogueKey: 'coach_strength',
         wanderRadius: 5
       });
-      // 5. Instructor de Cardio (Cardio Zone - Bottom Left)
-      const coachCardio = new NPC(this, 8 * TILE_SIZE, 24 * TILE_SIZE, 'npc_coach_cardio', {
+      // 5. Instructor de Cardio (Sala de cardio)
+      const coachCardio = new NPC(this, 6.5 * TILE_SIZE, 18 * TILE_SIZE, 'npc_coach_cardio', {
         name: 'Instructor de Cardio',
         dialogueKey: 'coach_cardio',
         wanderRadius: 5
       });
-      // 6. Monje de Meditación (Meditation Zone - Bottom Right)
-      const monk = new NPC(this, 50 * TILE_SIZE, 22 * TILE_SIZE, 'npc_monk', {
+      // 6. Monje de Meditación (Sala de meditación)
+      const monk = new NPC(this, 32.5 * TILE_SIZE, 13.5 * TILE_SIZE, 'npc_monk', {
         name: 'Monje de Meditación',
         dialogueKey: 'coach_meditation',
         wanderRadius: 5
@@ -1277,6 +1281,15 @@ export default class WorldScene extends Phaser.Scene {
   /**
    * Returns the set of valid floor tile types for chest placement in this map.
    */
+  // The guild has its own chest drawn on the wooden floor
+  _chestTile() {
+    return this.mapId === 'guild' ? TILES.GUILD_CHEST : TILES.CHEST;
+  }
+
+  _isChest(tileType) {
+    return tileType === TILES.CHEST || tileType === TILES.GUILD_CHEST;
+  }
+
   _getValidChestTiles() {
     if (this.mapId === 'cueva_goblin') return new Set([TILES.DUNGEON_FLOOR]);
     if (this.mapId === 'deeproot')     return new Set([TILES.GRASS, TILES.GRASS_FLOWER, TILES.DARK_GRASS, TILES.DIRT]);
@@ -1300,17 +1313,10 @@ export default class WorldScene extends Phaser.Scene {
       const raw = localStorage.getItem(posKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.length >= count) {
+        // Saved spots from an older layout may now be walls or off the map: start over then
+        const stillValid = parsed.every(({ x, y }) => validTiles.has(this._mapData[y]?.[x]));
+        if (parsed.length >= count && stillValid) {
           spawns = parsed;
-          // Force floor tiles at these positions to avoid wall conflicts
-          const floorTile = this.mapId === 'cueva_goblin' ? TILES.DUNGEON_FLOOR
-                          : this.mapId === 'deeproot'      ? TILES.GRASS
-                          : TILES.GUILD_FLOOR;
-          spawns.forEach(({ x, y }) => {
-            if (this._mapData[y] && this._mapData[y][x] !== undefined) {
-              this._mapData[y][x] = floorTile;
-            }
-          });
         }
       }
     } catch (e) { /* ignore parse errors */ }
@@ -1330,8 +1336,8 @@ export default class WorldScene extends Phaser.Scene {
       const key = this._chestCooldownKey(this.mapId, x, y);
       const cooldownUntil = parseInt(localStorage.getItem(key) || '0', 10);
       if (Date.now() >= cooldownUntil) {
-        this._mapData[y][x] = TILES.CHEST;
-        this.mapLayer.putTileAt(TILES.CHEST, x, y);
+        this._mapData[y][x] = this._chestTile();
+        this.mapLayer.putTileAt(this._chestTile(), x, y);
         this._chestPositions.push({ x, y });
       }
       // On cooldown: leave as floor (generator already set it)
@@ -1371,10 +1377,10 @@ export default class WorldScene extends Phaser.Scene {
       // Schedule visual re-spawn
       this.time.delayedCall(COOLDOWN_MS, () => {
         if (!this.scene.isActive(SCENES.WORLD)) return;
-        if (this._mapData[tileY][tileX] !== floorTile && this._mapData[tileY][tileX] !== TILES.CHEST) return;
+        if (this._mapData[tileY][tileX] !== floorTile && !this._isChest(this._mapData[tileY][tileX])) return;
         localStorage.removeItem(key);
-        this._mapData[tileY][tileX] = TILES.CHEST;
-        this.mapLayer.putTileAt(TILES.CHEST, tileX, tileY);
+        this._mapData[tileY][tileX] = this._chestTile();
+        this.mapLayer.putTileAt(this._chestTile(), tileX, tileY);
         if (uiScene && uiScene.showNotification) {
           uiScene.showNotification('📦 ¡Un cofre ha reaparecido cerca!', '#c4a35a');
         }
@@ -1537,7 +1543,7 @@ export default class WorldScene extends Phaser.Scene {
     // Check standing tile first (for meditation mats)
     let standX = Math.floor(this.player.x / TILE_SIZE);
     let standY = Math.floor(this.player.y / TILE_SIZE);
-    if (standX >= 0 && standX < MAP_WIDTH && standY >= 0 && standY < MAP_HEIGHT) {
+    if (standX >= 0 && standX < this._mapWidth && standY >= 0 && standY < this._mapHeight) {
       const standTileType = this._mapData[standY][standX];
       if (standTileType === TILES.MEDITATION_MAT) {
         return { x: standX, y: standY, tileType: standTileType };
@@ -1555,7 +1561,7 @@ export default class WorldScene extends Phaser.Scene {
       case 'right': checkX += 1; break;
     }
 
-    if (checkX < 0 || checkX >= MAP_WIDTH || checkY < 0 || checkY >= MAP_HEIGHT) return null;
+    if (checkX < 0 || checkX >= this._mapWidth || checkY < 0 || checkY >= this._mapHeight) return null;
 
     return {
       x: checkX,
@@ -1591,7 +1597,8 @@ export default class WorldScene extends Phaser.Scene {
     }
 
     const tile = this._getNearbyTile();
-    if (tile && (tile.tileType === TILES.CHEST || tile.tileType === TILES.SIGN || tile.tileType === TILES.BOOKSHELF || tile.tileType === TILES.MEDITATION_MAT || tile.tileType === TILES.STUDY_TABLE)) {
+    const interactive = [TILES.SIGN, TILES.SIGN_EXIT, TILES.SIGN_ARENA, TILES.BOOKSHELF, TILES.MEDITATION_MAT, TILES.STUDY_TABLE];
+    if (tile && (this._isChest(tile.tileType) || interactive.includes(tile.tileType))) {
       this._interactPrompt.setPosition(
         tile.x * TILE_SIZE + TILE_SIZE / 2,
         tile.y * TILE_SIZE - 8
@@ -1621,8 +1628,14 @@ export default class WorldScene extends Phaser.Scene {
 
     const uiScene = this.scene.get(SCENES.UI);
 
-    if (tile.tileType === TILES.CHEST) {
+    if (this._isChest(tile.tileType)) {
       this._handleChestOpen(tile.x, tile.y);
+
+    } else if (tile.tileType === TILES.SIGN_EXIT) {
+      uiScene?.showNotification?.('🌲 Salida al bosque de Deeproot. ¡Cuidado con los Goblins!', '#c4a35a');
+
+    } else if (tile.tileType === TILES.SIGN_ARENA) {
+      uiScene?.showNotification?.('⚔️ Arena de práctica: Slimes, Goblins y un Esqueleto para entrenar tu combate.', '#c4a35a');
 
     } else if (tile.tileType === TILES.SIGN) {
       // Show a tutorial message

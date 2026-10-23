@@ -19,6 +19,17 @@ const PIXEL_TILES = {
   [TILES.MEDITATION_MAT]: GUILD_TILES.meditationMat,
   [TILES.BOOKSHELF]: GUILD_TILES.bookshelf,
   [TILES.RECEPTION_DESK]: GUILD_TILES.receptionDesk,
+  [TILES.GUILD_WALL_TORCH]: GUILD_TILES.wallTorch,
+  [TILES.GUILD_RUG]: GUILD_TILES.rug,
+  [TILES.GUILD_PLANT]: GUILD_TILES.plant,
+  [TILES.TRAINING_DUMMY]: GUILD_TILES.trainingDummy,
+  [TILES.GUILD_FLAGSTONE]: GUILD_TILES.flagstone,
+  [TILES.ARENA_FLOOR]: GUILD_TILES.arenaFloor,
+  [TILES.GUILD_CHEST]: GUILD_TILES.chest,
+  [TILES.BULLETIN_BOARD]: GUILD_TILES.bulletinBoard,
+  [TILES.SIGN_EXIT]: GUILD_TILES.signExit,
+  [TILES.SIGN_ARENA]: GUILD_TILES.signArena,
+  [TILES.ARENA_DUMMY]: GUILD_TILES.arenaDummy,
 };
 
 export default class BootScene extends Phaser.Scene {
@@ -63,18 +74,30 @@ export default class BootScene extends Phaser.Scene {
   // ========================================================================
   //  TILESET GENERATION
   // ========================================================================
+  // Each tile sits in an 18 px cell with its edge pixels copied one pixel outward
+  // (margin 1, spacing 2). At non-integer zoom the GPU samples that copy instead of
+  // the neighbouring tile, which showed up as grass lines between floor boards.
   _generateTileset() {
     const tileKeys = Object.values(TILES);
-    const canvas = this.textures.createCanvas('tileset', tileKeys.length * TILE_SIZE, TILE_SIZE);
+    const cell = TILE_SIZE + 2;
+    const canvas = this.textures.createCanvas('tileset', tileKeys.length * cell, cell);
     const ctx = canvas.getContext();
+    const src = canvas.getSourceImage();
 
     tileKeys.forEach((tileKey) => {
+      const x = tileKey * cell + 1;
       ctx.save();
-      ctx.translate(tileKey * TILE_SIZE, 0);
+      ctx.translate(x, 1);
       this._drawTile(ctx, tileKey);
       ctx.restore();
+
+      const last = TILE_SIZE - 1;
+      ctx.drawImage(src, x, 1, TILE_SIZE, 1, x, 0, TILE_SIZE, 1);                       // top
+      ctx.drawImage(src, x, 1 + last, TILE_SIZE, 1, x, 1 + TILE_SIZE, TILE_SIZE, 1);     // bottom
+      ctx.drawImage(src, x, 0, 1, cell, x - 1, 0, 1, cell);                              // left
+      ctx.drawImage(src, x + last, 0, 1, cell, x + TILE_SIZE, 0, 1, cell);               // right
     });
-    
+
     canvas.refresh();
   }
 
@@ -102,8 +125,6 @@ export default class BootScene extends Phaser.Scene {
       case TILES.SAND:            this._drawSand(ctx, C); break;
       case TILES.CHEST:           this._drawChest(ctx, C); break;
       case TILES.SIGN:            this._drawSign(ctx, C); break;
-      case TILES.ARENA_FLOOR:     this._drawArenaFloor(ctx, C); break;
-      case TILES.BULLETIN_BOARD:  this._drawBulletinBoard(ctx, C); break;
       case TILES.DUNGEON_FLOOR:   this._drawDungeonFloor(ctx, C); break;
       case TILES.DUNGEON_WALL:    this._drawDungeonWall(ctx, C); break;
       case TILES.LAVA:            this._drawLava(ctx, C); break;
@@ -400,28 +421,6 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillRect(10, 7, 2, 3);
     ctx.fillStyle = '#ffd700'; // ribbon
     ctx.fillRect(11, 6, 1, 1);
-  }
-
-  _drawArenaFloor(ctx, C) {
-    ctx.fillStyle = C.ARENA_FLOOR?.primary || '#c0392b';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = C.ARENA_FLOOR?.detail || '#7f8c8d';
-    ctx.fillRect(1, 1, 14, 14);
-    ctx.fillStyle = C.ARENA_FLOOR?.secondary || '#e74c3c';
-    ctx.fillRect(4, 4, 8, 8);
-  }
-
-  _drawBulletinBoard(ctx, C) {
-    ctx.fillStyle = C.BULLETIN_BOARD?.primary || '#7d4e00';
-    ctx.fillRect(0, 2, 16, 12);
-    // Papers
-    ctx.fillStyle = C.BULLETIN_BOARD?.detail || '#e8d5b7';
-    ctx.fillRect(2, 4, 4, 5);
-    ctx.fillRect(8, 5, 5, 4);
-    // Pins
-    ctx.fillStyle = C.BULLETIN_BOARD?.secondary || '#ffd700';
-    ctx.fillRect(4, 3, 1, 1);
-    ctx.fillRect(10, 4, 1, 1);
   }
 
   _drawDungeonFloor(ctx, C) {
