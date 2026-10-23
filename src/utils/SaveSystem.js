@@ -60,7 +60,7 @@ export default class SaveSystem {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name }, emailRedirectTo: window.location.origin },
+      options: { data: { name }, emailRedirectTo: `${window.location.origin}/` },
     });
     if (error) return { success: false, error: friendlyError(error) };
     if (!data.session) return { success: true, needsConfirmation: true };
@@ -81,7 +81,7 @@ export default class SaveSystem {
   static async loginWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/` },
     });
     return error ? { success: false, error: friendlyError(error) } : { success: true };
   }
