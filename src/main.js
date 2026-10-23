@@ -5,6 +5,7 @@ import WorldScene from './scenes/WorldScene.js';
 import UIScene from './scenes/UIScene.js';
 import { GAME_WIDTH, GAME_HEIGHT, ACTIVITIES } from './utils/constants.js';
 import SaveSystem from './utils/SaveSystem.js';
+import { supabaseConfigured } from './utils/supabaseClient.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -104,6 +105,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       authErrorMsg.style.color = 'var(--clr-crimson)';
     }
   };
+
+  if (!supabaseConfigured) {
+    authErrorMsg.innerText = 'El juego no está configurado: faltan las variables de Supabase en el servidor.';
+    authErrorMsg.style.color = 'var(--clr-crimson)';
+    authModal.querySelectorAll('button').forEach(btn => { btn.disabled = true; });
+    return;
+  }
 
   // Resume a saved session, including the one Supabase creates when returning from Google
   authErrorMsg.innerText = 'Comprobando sesión...';
