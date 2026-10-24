@@ -70,6 +70,7 @@ select t.check('nivel bloqueado por stat bajo', (select (r->>'blockedLevelUp')::
   from (select public.sync_character('{"xp":160}') r) s));
 reset role; update public.characters set level=1, xp=0 where user_id = :A; set role authenticated;
 select t.check('49 xp no sube', (public.sync_character('{"xp":49}')->'character'->>'level')::int = 1);
+select t.check('guardado normal con campos null', (public.sync_character('{"xp":20,"newActivityLogged":null,"activitiesToday":null}')->'character'->>'xp')::int = 20);
 reset role; update public.characters set activities_today = '{"chestCooldowns":{"guild_1_1":123}}' where user_id = :A; set role authenticated;
 select public.sync_character('{"moral":3,"newActivityLogged":{"type":"strength"},"activitiesToday":{"bar":2,"chestCooldowns":{}}}');
 select t.check('actividad registrada', (select count(*) from public.activities) = 1);
