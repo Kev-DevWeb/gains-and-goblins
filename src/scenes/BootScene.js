@@ -8,7 +8,7 @@
 
 import { TILE_SIZE, TILES, TILE_COLORS, SCENES } from '../utils/constants.js';
 import { drawPixelMap, mirror, liftFoot, breathe } from '../art/pixelArt.js';
-import { HERO, HERO_EVOLUTIONS, NPCS, ENEMIES as ENEMY_SPRITES, GUILD_TILES } from '../art/sprites.js';
+import { HERO, HERO_EVOLUTIONS, NPCS, ENEMIES as ENEMY_SPRITES, GUILD_TILES, OUTDOOR_TILES } from '../art/sprites.js';
 
 const PIXEL_TILES = {
   [TILES.GUILD_FLOOR]: GUILD_TILES.floor,
@@ -30,7 +30,53 @@ const PIXEL_TILES = {
   [TILES.SIGN_EXIT]: GUILD_TILES.signExit,
   [TILES.SIGN_ARENA]: GUILD_TILES.signArena,
   [TILES.ARENA_DUMMY]: GUILD_TILES.arenaDummy,
+  [TILES.GRASS]: OUTDOOR_TILES.grass,
+  [TILES.GRASS_FLOWER]: OUTDOOR_TILES.grassFlower,
+  [TILES.DARK_GRASS]: OUTDOOR_TILES.tallGrass,
+  [TILES.DIRT]: OUTDOOR_TILES.dirt,
+  [TILES.WATER]: OUTDOOR_TILES.water,
+  [TILES.TREE_TOP]: OUTDOOR_TILES.forestCanopy,
+  [TILES.TREE_TRUNK]: OUTDOOR_TILES.forestEdge,
+  [TILES.STONE_PATH]: OUTDOOR_TILES.plazaStone,
+  [TILES.BRIDGE]: OUTDOOR_TILES.dock,
+  [TILES.CHEST]: OUTDOOR_TILES.chest,
+  [TILES.SIGN]: OUTDOOR_TILES.sign,
+  [TILES.BUSH]: OUTDOOR_TILES.bush,
+  [TILES.ROCK]: OUTDOOR_TILES.rock,
+  [TILES.MUSHROOMS]: OUTDOOR_TILES.mushrooms,
+  [TILES.GUILD_ROOF]: OUTDOOR_TILES.guildRoof,
+  [TILES.GUILD_FACADE]: OUTDOOR_TILES.guildFacade,
+  [TILES.GUILD_WINDOW]: OUTDOOR_TILES.guildWindow,
+  [TILES.GUILD_DOOR_LEFT]: OUTDOOR_TILES.guildDoorLeft,
+  [TILES.GUILD_DOOR_RIGHT]: OUTDOOR_TILES.guildDoorRight,
+  [TILES.GUILD_FLAG]: OUTDOOR_TILES.guildFlag,
+  [TILES.PULLUP_BAR]: OUTDOOR_TILES.pullupBar,
+  [TILES.PARALLEL_BARS]: OUTDOOR_TILES.parallelBars,
+  [TILES.LIFT_STONES]: OUTDOOR_TILES.liftStones,
+  [TILES.LOG_BENCH]: OUTDOOR_TILES.logBench,
+  [TILES.TRACK_LINE]: OUTDOOR_TILES.trackLine,
+  [TILES.TIRE]: OUTDOOR_TILES.tire,
+  [TILES.KETTLEBELLS]: OUTDOOR_TILES.kettlebells,
+  [TILES.BALANCE_BEAM]: OUTDOOR_TILES.balanceBeam,
+  [TILES.FOUNTAIN]: OUTDOOR_TILES.fountain,
+  [TILES.YOGA_MAT]: OUTDOOR_TILES.yogaMat,
+  [TILES.LILY_PAD]: OUTDOOR_TILES.lilyPad,
+  [TILES.TENT_TOP_LEFT]: OUTDOOR_TILES.tentTopLeft,
+  [TILES.TENT_TOP_RIGHT]: OUTDOOR_TILES.tentTopRight,
+  [TILES.TENT_BOTTOM_LEFT]: OUTDOOR_TILES.tentBottomLeft,
+  [TILES.TENT_BOTTOM_RIGHT]: OUTDOOR_TILES.tentBottomRight,
+  [TILES.CAMPFIRE]: OUTDOOR_TILES.campfire,
+  [TILES.FENCE_H]: OUTDOOR_TILES.fenceH,
+  [TILES.FENCE_V]: OUTDOOR_TILES.fenceV,
+  [TILES.SKULL_POLE]: OUTDOOR_TILES.skullPole,
+  [TILES.CLIFF_TOP]: OUTDOOR_TILES.cliffTop,
+  [TILES.CLIFF]: OUTDOOR_TILES.cliff,
 };
+OUTDOOR_TILES.caveMouth.forEach((map, i) => { PIXEL_TILES[TILES[`CAVE_MOUTH_${i}`]] = map; });
+for (let mask = 1; mask < 16; mask++) {
+  PIXEL_TILES[TILES[`WATER_EDGE_${mask}`]] = OUTDOOR_TILES.waterEdges[mask];
+  PIXEL_TILES[TILES[`DIRT_EDGE_${mask}`]] = OUTDOOR_TILES.dirtEdges[mask];
+}
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -109,22 +155,11 @@ export default class BootScene extends Phaser.Scene {
     }
     const C = TILE_COLORS;
     switch (tileKey) {
-      case TILES.GRASS:           this._drawGrass(ctx, C); break;
-      case TILES.GRASS_FLOWER:    this._drawGrassFlower(ctx, C); break;
-      case TILES.DIRT:            this._drawDirt(ctx, C); break;
-      case TILES.WATER:           this._drawWater(ctx, C); break;
       case TILES.WALL_STONE:      this._drawWallStone(ctx, C); break;
-      case TILES.TREE_TRUNK:      this._drawTreeTrunk(ctx, C); break;
-      case TILES.TREE_TOP:        this._drawTreeTop(ctx, C); break;
       case TILES.HOUSE_WALL:      this._drawHouseWall(ctx, C); break;
       case TILES.HOUSE_DOOR:      this._drawHouseDoor(ctx, C); break;
       case TILES.HOUSE_ROOF:      this._drawHouseRoof(ctx, C); break;
-      case TILES.BRIDGE:          this._drawBridge(ctx, C); break;
-      case TILES.STONE_PATH:      this._drawStonePath(ctx, C); break;
-      case TILES.DARK_GRASS:      this._drawDarkGrass(ctx, C); break;
       case TILES.SAND:            this._drawSand(ctx, C); break;
-      case TILES.CHEST:           this._drawChest(ctx, C); break;
-      case TILES.SIGN:            this._drawSign(ctx, C); break;
       case TILES.DUNGEON_FLOOR:   this._drawDungeonFloor(ctx, C); break;
       case TILES.DUNGEON_WALL:    this._drawDungeonWall(ctx, C); break;
       case TILES.LAVA:            this._drawLava(ctx, C); break;
@@ -138,56 +173,6 @@ export default class BootScene extends Phaser.Scene {
   }
 
   // --- Individual tile painters ------------------------------------------------
-
-  _drawGrass(ctx, C) {
-    // Solid green base
-    ctx.fillStyle = C.GRASS || '#4a7c2e';
-    ctx.fillRect(0, 0, 16, 16);
-    // Darker dots for texture
-    ctx.fillStyle = C.GRASS_DARK || '#2d5016';
-    const dots = [[2,3],[7,1],[12,5],[4,10],[9,13],[14,9],[1,14],[10,7]];
-    dots.forEach(([x, y]) => ctx.fillRect(x, y, 1, 1));
-  }
-
-  _drawGrassFlower(ctx, C) {
-    // Grass base first
-    this._drawGrass(ctx, C);
-    // Small flower
-    ctx.fillStyle = '#e94560'; // red petal
-    ctx.fillRect(7, 6, 2, 2);
-    ctx.fillStyle = '#ffd93d'; // gold center
-    ctx.fillRect(8, 6, 1, 1);
-    // Stem
-    ctx.fillStyle = '#2d5016';
-    ctx.fillRect(7, 8, 1, 3);
-  }
-
-  _drawDirt(ctx, C) {
-    ctx.fillStyle = C.DIRT || '#8b6914';
-    ctx.fillRect(0, 0, 16, 16);
-    // Slight lighter variation dots
-    ctx.fillStyle = C.DIRT_LIGHT || '#c4a35a';
-    const spots = [[3,2],[8,5],[13,1],[2,11],[6,14],[11,10],[15,7]];
-    spots.forEach(([x, y]) => ctx.fillRect(x, y, 1, 1));
-    // Darker specs
-    ctx.fillStyle = '#6b4f0a';
-    [[5,8],[10,3],[1,6],[14,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawWater(ctx, C) {
-    ctx.fillStyle = C.WATER || '#2d9cdb';
-    ctx.fillRect(0, 0, 16, 16);
-    // Lighter wave lines
-    ctx.fillStyle = C.WATER_LIGHT || '#7ec8e3';
-    // Wave row 1
-    for (let x = 1; x < 15; x += 3) { ctx.fillRect(x, 4, 2, 1); }
-    // Wave row 2 (offset)
-    for (let x = 3; x < 16; x += 3) { ctx.fillRect(x, 10, 2, 1); }
-    // Deep accents
-    ctx.fillStyle = C.WATER_DEEP || '#1a6b8a';
-    ctx.fillRect(0, 7, 16, 1);
-    ctx.fillRect(6, 13, 3, 1);
-  }
 
   _drawWallStone(ctx, C) {
     ctx.fillStyle = C.STONE || '#888888';
@@ -206,37 +191,6 @@ export default class BootScene extends Phaser.Scene {
     // Highlight pixel on a few bricks
     ctx.fillStyle = '#aaaaaa';
     [[2,1],[10,1],[6,7],[14,7],[2,12],[10,12]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawTreeTrunk(ctx, C) {
-    // Grass base behind the trunk
-    this._drawGrass(ctx, C);
-    // Trunk (centered, bottom half)
-    ctx.fillStyle = C.TREE_TRUNK || '#8b6914';
-    ctx.fillRect(5, 4, 6, 12);
-    // Bark detail
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(6, 6, 1, 8);
-    ctx.fillRect(9, 5, 1, 9);
-    // Highlight
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(7, 7, 1, 4);
-  }
-
-  _drawTreeTop(ctx, C) {
-    // Dark green canopy – diamond / rounded shape
-    ctx.fillStyle = C.TREE_TOP || '#2d5016';
-    // Build a rough circle/diamond
-    ctx.fillRect(5, 0, 6, 1);    // top
-    ctx.fillRect(3, 1, 10, 2);
-    ctx.fillRect(1, 3, 14, 4);
-    ctx.fillRect(2, 7, 12, 3);
-    ctx.fillRect(3, 10, 10, 2);
-    ctx.fillRect(5, 12, 6, 2);
-    ctx.fillRect(6, 14, 4, 2);
-    // Lighter leaf highlights
-    ctx.fillStyle = C.TREE_HIGHLIGHT || '#8fbc5a';
-    [[4,4],[8,2],[11,5],[6,8],[3,6],[10,9],[7,11]].forEach(([x,y]) => ctx.fillRect(x,y,2,1));
   }
 
   _drawHouseWall(ctx, C) {
@@ -290,58 +244,6 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillRect(0, 14, 16, 2);
   }
 
-  _drawBridge(ctx, C) {
-    // Water base underneath
-    ctx.fillStyle = C.WATER || '#2d9cdb';
-    ctx.fillRect(0, 0, 16, 16);
-    // Wooden planks
-    ctx.fillStyle = '#8b6914';
-    for (let y = 0; y < 16; y += 4) {
-      ctx.fillRect(2, y, 12, 3);
-    }
-    // Gaps between planks
-    ctx.fillStyle = '#1a6b8a';
-    for (let y = 3; y < 16; y += 4) {
-      ctx.fillRect(2, y, 12, 1);
-    }
-    // Side rails
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(1, 0, 1, 16);
-    ctx.fillRect(14, 0, 1, 16);
-  }
-
-  _drawStonePath(ctx, C) {
-    ctx.fillStyle = '#999999';
-    ctx.fillRect(0, 0, 16, 16);
-    // Cobblestone outlines
-    ctx.fillStyle = '#666666';
-    // Row 1
-    ctx.fillRect(0, 0, 16, 1);
-    ctx.fillRect(0, 5, 16, 1);
-    ctx.fillRect(0, 10, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    ctx.fillRect(5, 0, 1, 5);
-    ctx.fillRect(11, 0, 1, 5);
-    ctx.fillRect(3, 5, 1, 5);
-    ctx.fillRect(8, 5, 1, 5);
-    ctx.fillRect(13, 5, 1, 5);
-    ctx.fillRect(5, 10, 1, 5);
-    ctx.fillRect(11, 10, 1, 5);
-    // Highlights
-    ctx.fillStyle = '#bbbbbb';
-    [[2,2],[8,2],[13,3],[1,7],[5,7],[10,8],[3,12],[8,12],[14,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawDarkGrass(ctx, C) {
-    ctx.fillStyle = C.DARK_GRASS || '#2d5016';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#1a3a0a';
-    [[3,2],[9,4],[14,1],[1,9],[7,12],[12,14],[5,7]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-    // A couple lighter blades
-    ctx.fillStyle = '#4a7c2e';
-    [[6,3],[11,8],[2,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,2));
-  }
-
   _drawSand(ctx, C) {
     ctx.fillStyle = C.SAND || '#e8d5b7';
     ctx.fillRect(0, 0, 16, 16);
@@ -350,51 +252,6 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillStyle = '#f5edd5';
     [[5,3],[11,6],[3,11],[9,14]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
   }
-
-  _drawChest(ctx, C) {
-    // Grass behind
-    this._drawGrass(ctx, C);
-    // Chest body
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(2, 6, 12, 8);
-    // Lid (slightly darker)
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(2, 4, 12, 3);
-    // Gold trim / latch
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(2, 6, 12, 1); // rim between lid and body
-    ctx.fillRect(7, 7, 2, 3);  // latch
-    // Keyhole
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(7, 9, 2, 1);
-    // Highlights
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(3, 5, 2, 1);
-    ctx.fillRect(11, 5, 2, 1);
-  }
-
-  _drawSign(ctx, C) {
-    // Grass behind
-    this._drawGrass(ctx, C);
-    // Post
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(7, 7, 2, 9);
-    // Board
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(3, 2, 10, 6);
-    // Board border
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(3, 2, 10, 1);
-    ctx.fillRect(3, 7, 10, 1);
-    ctx.fillRect(3, 2, 1, 6);
-    ctx.fillRect(12, 2, 1, 6);
-    // Text lines (tiny dark lines to suggest writing)
-    ctx.fillStyle = '#333333';
-    ctx.fillStyle = '#5a3a1a';
-    ctx.fillRect(4, 5, 8, 5);
-  }
-
-  // --- New Guild Tile Painters ---
 
   _drawStudyTable(ctx, C) {
     // Guild floor behind table/chair

@@ -1,11 +1,11 @@
-import { getMapSize, TILES, ENEMIES } from './constants.js';
+import { getMapSize, TILES, ENEMIES, waterTile, dirtTile } from './constants.js';
+import { DEEPROOT_LAYOUT, DEEPROOT_CHEST_SPOTS, DEEPROOT_ENEMIES } from './deeprootLayout.js';
 
-const DEEPROOT = getMapSize('deeproot');
 const GUILD = getMapSize('guild');
 
 export function generateMap(mapId, width, height) {
   if (mapId === 'deeproot') {
-    return _generateDeeproot(width, height);
+    return _generateDeeproot();
   } else if (mapId === 'cueva_goblin') {
     return _generateDungeon(width, height);
   }
@@ -88,6 +88,8 @@ function _generateGuild(width, height) {
 }
 
 export function getChestSpawns(mapId, mapData, count = 5) {
+  if (mapId === 'deeproot') return DEEPROOT_CHEST_SPOTS.map((spot) => ({ ...spot }));
+
   const height = mapData.length;
   const width  = mapData[0].length;
 
@@ -95,8 +97,6 @@ export function getChestSpawns(mapId, mapData, count = 5) {
   let validTiles;
   if (mapId === 'cueva_goblin') {
     validTiles = new Set([TILES.DUNGEON_FLOOR]);
-  } else if (mapId === 'deeproot') {
-    validTiles = new Set([TILES.GRASS, TILES.GRASS_FLOWER, TILES.DARK_GRASS, TILES.DIRT]);
   } else {
     // guild — place on guild floor only, away from walls
     validTiles = new Set([TILES.GUILD_FLOOR]);
@@ -122,75 +122,42 @@ export function getChestSpawns(mapId, mapData, count = 5) {
   return candidates.slice(0, count);
 }
 
-function _generateDeeproot(width, height) {
-  const mapData = [];
-  
-  // Base grass
-  for (let y = 0; y < height; y++) {
-    const row = [];
-    for (let x = 0; x < width; x++) {
-      if (Math.random() < 0.1) row.push(TILES.GRASS_FLOWER);
-      else if (Math.random() < 0.05) row.push(TILES.DARK_GRASS);
-      else row.push(TILES.GRASS);
-    }
-    mapData.push(row);
+// Character codes of DEEPROOT_LAYOUT (see deeprootLayout.js); dirt and water
+// are resolved separately so their edges match the neighbouring tiles
+const DEEPROOT_CODES = {
+  C: TILES.TREE_TOP, e: TILES.TREE_TRUNK, g: TILES.GRASS, v: TILES.GRASS_FLOWER, Y: TILES.DARK_GRASS,
+  h: TILES.BUSH, r: TILES.ROCK, m: TILES.MUSHROOMS, y: TILES.LILY_PAD, D: TILES.BRIDGE,
+  p: TILES.STONE_PATH, o: TILES.GUILD_ROOF, f: TILES.GUILD_FACADE, W: TILES.GUILD_WINDOW,
+  '(': TILES.GUILD_DOOR_LEFT, ')': TILES.GUILD_DOOR_RIGHT, F: TILES.GUILD_FLAG,
+  P: TILES.PULLUP_BAR, B: TILES.PARALLEL_BARS, L: TILES.LIFT_STONES, b: TILES.LOG_BENCH,
+  l: TILES.TRACK_LINE, O: TILES.TIRE, Q: TILES.KETTLEBELLS, Z: TILES.BALANCE_BEAM,
+  U: TILES.FOUNTAIN, M: TILES.YOGA_MAT,
+  '[': TILES.TENT_TOP_LEFT, ']': TILES.TENT_TOP_RIGHT, '{': TILES.TENT_BOTTOM_LEFT, '}': TILES.TENT_BOTTOM_RIGHT,
+  c: TILES.CAMPFIRE, '-': TILES.FENCE_H, '|': TILES.FENCE_V, s: TILES.SKULL_POLE, S: TILES.SIGN,
+  k: TILES.CLIFF_TOP, K: TILES.CLIFF,
+};
+for (let i = 0; i < 8; i++) DEEPROOT_CODES[String(i)] = TILES[`CAVE_MOUTH_${i}`];
+
+// Codes drawn on top of dirt or water count as that terrain when picking edges
+const DIRT_LIKE = new Set(['d', 'l', '[', ']', '{', '}', 'c', 's']);
+const WATER_LIKE = new Set(['w', 'y', 'D']);
+
+function _edgeMask(layout, x, y, sameTerrain) {
+  let mask = 0;
+  const sides = [[0, -1, 1], [1, 0, 2], [0, 1, 4], [-1, 0, 8]];
+  for (const [dx, dy, bit] of sides) {
+    const code = layout[y + dy]?.[x + dx];
+    if (code !== undefined && !sameTerrain.has(code)) mask |= bit;
   }
+  return mask;
+}
 
-  // Very dense forest borders (Thick trees)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      // 5 tiles thick border of trees
-      if (x < 5 || x > width - 6 || y < 5 || y > height - 6) {
-        mapData[y][x] = Math.random() > 0.5 ? TILES.TREE_TRUNK : TILES.TREE_TOP;
-      }
-    }
-  }
-
-  // Central dirt path
-  for (let y = 0; y < height; y++) {
-    for (let x = 25; x <= 35; x++) {
-      // Create a winding path using some noise/randomness
-      const offset = Math.floor(Math.sin(y / 5) * 4);
-      const pathX = x + offset;
-      if (pathX > 0 && pathX < width) {
-        if (Math.random() > 0.1) {
-          mapData[y][pathX] = TILES.DIRT;
-        }
-      }
-    }
-  }
-
-  // Entrance from Guild at the top
-  for(let x = 27; x <= 33; x++) {
-    mapData[0][x] = TILES.STONE_PATH;
-    mapData[1][x] = TILES.STONE_PATH;
-    mapData[2][x] = TILES.STONE_PATH;
-    mapData[3][x] = TILES.STONE_PATH;
-    mapData[4][x] = TILES.STONE_PATH;
-  }
-
-  // Sign near entrance
-  mapData[5][28] = TILES.SIGN;
-
-  // Some scattered water ponds
-  for (let i = 0; i < 3; i++) {
-    const px = 10 + Math.floor(Math.random() * (width - 20));
-    const py = 10 + Math.floor(Math.random() * (height - 20));
-    for(let dy=0; dy<4; dy++){
-      for(let dx=0; dx<4; dx++){
-        mapData[py+dy][px+dx] = TILES.WATER;
-      }
-    }
-  }
-
-  // Cave entrance to the Cueva Goblin at the bottom
-  for(let x = 28; x <= 32; x++) {
-    mapData[height - 6][x] = TILES.CAVE_ENTRANCE;
-    mapData[height - 7][x] = TILES.CAVE_ENTRANCE;
-  }
-  mapData[height - 8][27] = TILES.SIGN;
-
-  return mapData;
+function _generateDeeproot() {
+  return DEEPROOT_LAYOUT.map((row, y) => [...row].map((code, x) => {
+    if (code === 'd') return dirtTile(_edgeMask(DEEPROOT_LAYOUT, x, y, DIRT_LIKE));
+    if (code === 'w') return waterTile(_edgeMask(DEEPROOT_LAYOUT, x, y, WATER_LIKE));
+    return DEEPROOT_CODES[code];
+  }));
 }
 
 function _generateDungeon(width, height) {
@@ -251,9 +218,9 @@ function _generateDungeon(width, height) {
 
 export function getSpawnPoint(mapId, spawnId) {
   if (mapId === 'deeproot') {
-    if (spawnId === 'from_guild') return { x: 30, y: 6 };
-    if (spawnId === 'from_cueva_goblin') return { x: 30, y: DEEPROOT.height - 9 };
-    return { x: 30, y: 6 };
+    // On the plaza in front of the guild door, or on the path above the cave
+    if (spawnId === 'from_cueva_goblin') return { x: 30, y: 37 };
+    return { x: 30, y: 5 };
   }
   if (mapId === 'cueva_goblin') {
     if (spawnId === 'from_deeproot') return { x: 30, y: 5 }; // Top entrance
@@ -272,29 +239,9 @@ export function getEnemySpawns(mapId) {
   const spawns = [];
   
   if (mapId === 'deeproot') {
-    // Deeproot has reduced slimes (18 instead of 40)
-    for(let i=0; i < 18; i++) {
-      const x = 5 + Math.random() * (DEEPROOT.width - 10);
-      const y = 8 + Math.random() * (DEEPROOT.height - 16);
-      spawns.push({ x, y, type: ENEMIES.SLIME });
-    }
-    // Reduced melee Goblins (5 instead of 10)
-    for(let i=0; i < 5; i++) {
-      const x = 10 + Math.random() * (DEEPROOT.width - 20);
-      const y = 20 + Math.random() * (DEEPROOT.height - 30);
-      spawns.push({ x, y, type: ENEMIES.GOBLIN });
-    }
-    // Added a few Goblin Archers in deeproot (3)
-    for(let i=0; i < 3; i++) {
-      const x = 10 + Math.random() * (DEEPROOT.width - 20);
-      const y = 15 + Math.random() * (DEEPROOT.height - 25);
-      spawns.push({ x, y, type: ENEMIES.GOBLIN_BOW });
-    }
-    // Added a few Goblin Mages in deeproot (2)
-    for(let i=0; i < 2; i++) {
-      const x = 15 + Math.random() * (DEEPROOT.width - 30);
-      const y = 15 + Math.random() * (DEEPROOT.height - 25);
-      spawns.push({ x, y, type: ENEMIES.GOBLIN_MAGE });
+    // Each enemy keeps to its zone, nudged a little so respawns don't stack
+    for (const enemy of DEEPROOT_ENEMIES) {
+      spawns.push({ ...enemy, x: enemy.x + Math.random() - 0.5, y: enemy.y + Math.random() - 0.5 });
     }
   } else if (mapId === 'cueva_goblin') {
     // Melee goblins - moved out of the entrance corridor
@@ -331,6 +278,20 @@ export function getEnemySpawns(mapId) {
   return spawns;
 }
 
+// Signposts with their own text; other signs show a random tutorial tip
+const SIGN_TEXTS = {
+  deeproot: {
+    '22,6': '⬅ Parque de entrenamiento · ➡ Lago · ⬇ Cueva Goblin',
+    '21,17': 'Parque de entrenamiento de Deeproot. Abierto 24 horas. Las excusas se quedan en la entrada.',
+    '35,21': 'Lago de Deeproot. Prohibido bañarse: los Slimes lo consideran su piscina privada.',
+    '27,37': '⚠ Cueva Goblin. Entra con la espada, sale con las pantorrillas.',
+  },
+};
+
+export function getSignText(mapId, x, y) {
+  return SIGN_TEXTS[mapId]?.[`${x},${y}`] ?? null;
+}
+
 export function getTransitions(mapId) {
   if (mapId === 'guild') {
     return [
@@ -341,14 +302,9 @@ export function getTransitions(mapId) {
     ];
   } else if (mapId === 'deeproot') {
     return [
-      { 
-        x: 27, y: 0, w: 7, h: 2, 
-        targetMap: 'guild', targetSpawnId: 'from_deeproot' 
-      },
-      {
-        x: 28, y: DEEPROOT.height - 6, w: 5, h: 2,
-        targetMap: 'cueva_goblin', targetSpawnId: 'from_deeproot'
-      }
+      // The guild's double door and the cave mouth
+      { x: 29, y: 3, w: 2, h: 1, targetMap: 'guild', targetSpawnId: 'from_deeproot' },
+      { x: 28, y: 39, w: 4, h: 2, targetMap: 'cueva_goblin', targetSpawnId: 'from_deeproot' },
     ];
   } else if (mapId === 'cueva_goblin') {
     return [

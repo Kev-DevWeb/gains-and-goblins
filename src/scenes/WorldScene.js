@@ -6,7 +6,7 @@ import QuestSystem, { QUEST_STATE } from '../utils/QuestSystem.js';
 import DialogueSystem from '../ui/DialogueSystem.js';
 import ShopSystem from '../ui/ShopSystem.js';
 import DailyMissionSystem from '../utils/DailyMissionSystem.js';
-import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns } from '../utils/MapGenerator.js';
+import { generateMap, getSpawnPoint, getEnemySpawns, getTransitions, getChestSpawns, getSignText } from '../utils/MapGenerator.js';
 import { TILE_SIZE, getMapSize, SOLID_TILES, SCENES, WEAPONS, ACTIVITIES, TILES, BRANCHES } from '../utils/constants.js';
 import SaveSystem from '../utils/SaveSystem.js';
 import Lobby from '../utils/Lobby.js';
@@ -1292,7 +1292,7 @@ export default class WorldScene extends Phaser.Scene {
 
   _getValidChestTiles() {
     if (this.mapId === 'cueva_goblin') return new Set([TILES.DUNGEON_FLOOR]);
-    if (this.mapId === 'deeproot')     return new Set([TILES.GRASS, TILES.GRASS_FLOWER, TILES.DARK_GRASS, TILES.DIRT]);
+    if (this.mapId === 'deeproot')     return new Set([TILES.GRASS]);
     return new Set([TILES.GUILD_FLOOR]);
   }
 
@@ -1308,9 +1308,10 @@ export default class WorldScene extends Phaser.Scene {
     const validTiles = this._getValidChestTiles();
 
     // Try to reuse saved positions (so reloading respects cooldowns)
+    // Deeproot has fixed chest spots, so only the other maps reuse saved ones
     let spawns = null;
     try {
-      const raw = localStorage.getItem(posKey);
+      const raw = this.mapId === 'deeproot' ? null : localStorage.getItem(posKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         // Saved spots from an older layout may now be walls or off the map: start over then
@@ -1636,6 +1637,9 @@ export default class WorldScene extends Phaser.Scene {
 
     } else if (tile.tileType === TILES.SIGN_ARENA) {
       uiScene?.showNotification?.('⚔️ Arena de práctica: Slimes, Goblins y un Esqueleto para entrenar tu combate.', '#c4a35a');
+
+    } else if (tile.tileType === TILES.SIGN && getSignText(this.mapId, tile.x, tile.y)) {
+      uiScene?.showNotification?.(`📜 ${getSignText(this.mapId, tile.x, tile.y)}`, '#c4a35a');
 
     } else if (tile.tileType === TILES.SIGN) {
       // Show a tutorial message
