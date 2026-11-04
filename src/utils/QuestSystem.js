@@ -6,7 +6,6 @@ export default class QuestSystem {
     this.quests = new Map();
     this.questProgress = new Map();
 
-    // Define all quests
     this._defineQuests();
   }
 

@@ -6,7 +6,77 @@
 // the Menu scene.
 // ============================================================================
 
-import { TILE_SIZE, TILES, TILE_COLORS, ENEMIES, WEAPONS, SCENES } from '../utils/constants.js';
+import { TILE_SIZE, TILES, TILE_COLORS, SCENES } from '../utils/constants.js';
+import { drawPixelMap, mirror, liftFoot, breathe } from '../art/pixelArt.js';
+import { HERO, HERO_EVOLUTIONS, NPCS, ENEMIES as ENEMY_SPRITES, GUILD_TILES, OUTDOOR_TILES } from '../art/sprites.js';
+
+const PIXEL_TILES = {
+  [TILES.GUILD_FLOOR]: GUILD_TILES.floor,
+  [TILES.GUILD_WALL]: GUILD_TILES.wall,
+  [TILES.GUILD_BANNER]: GUILD_TILES.banner,
+  [TILES.DUMBBELL_RACK]: GUILD_TILES.dumbbellRack,
+  [TILES.CARDIO_ZONE]: GUILD_TILES.treadmill,
+  [TILES.MEDITATION_MAT]: GUILD_TILES.meditationMat,
+  [TILES.BOOKSHELF]: GUILD_TILES.bookshelf,
+  [TILES.RECEPTION_DESK]: GUILD_TILES.receptionDesk,
+  [TILES.GUILD_WALL_TORCH]: GUILD_TILES.wallTorch,
+  [TILES.GUILD_RUG]: GUILD_TILES.rug,
+  [TILES.GUILD_PLANT]: GUILD_TILES.plant,
+  [TILES.TRAINING_DUMMY]: GUILD_TILES.trainingDummy,
+  [TILES.GUILD_FLAGSTONE]: GUILD_TILES.flagstone,
+  [TILES.ARENA_FLOOR]: GUILD_TILES.arenaFloor,
+  [TILES.GUILD_CHEST]: GUILD_TILES.chest,
+  [TILES.BULLETIN_BOARD]: GUILD_TILES.bulletinBoard,
+  [TILES.SIGN_EXIT]: GUILD_TILES.signExit,
+  [TILES.SIGN_ARENA]: GUILD_TILES.signArena,
+  [TILES.ARENA_DUMMY]: GUILD_TILES.arenaDummy,
+  [TILES.GRASS]: OUTDOOR_TILES.grass,
+  [TILES.GRASS_FLOWER]: OUTDOOR_TILES.grassFlower,
+  [TILES.DARK_GRASS]: OUTDOOR_TILES.tallGrass,
+  [TILES.DIRT]: OUTDOOR_TILES.dirt,
+  [TILES.WATER]: OUTDOOR_TILES.water,
+  [TILES.TREE_TOP]: OUTDOOR_TILES.forestCanopy,
+  [TILES.TREE_TRUNK]: OUTDOOR_TILES.forestEdge,
+  [TILES.STONE_PATH]: OUTDOOR_TILES.plazaStone,
+  [TILES.BRIDGE]: OUTDOOR_TILES.dock,
+  [TILES.CHEST]: OUTDOOR_TILES.chest,
+  [TILES.SIGN]: OUTDOOR_TILES.sign,
+  [TILES.BUSH]: OUTDOOR_TILES.bush,
+  [TILES.ROCK]: OUTDOOR_TILES.rock,
+  [TILES.MUSHROOMS]: OUTDOOR_TILES.mushrooms,
+  [TILES.GUILD_ROOF]: OUTDOOR_TILES.guildRoof,
+  [TILES.GUILD_FACADE]: OUTDOOR_TILES.guildFacade,
+  [TILES.GUILD_WINDOW]: OUTDOOR_TILES.guildWindow,
+  [TILES.GUILD_DOOR_LEFT]: OUTDOOR_TILES.guildDoorLeft,
+  [TILES.GUILD_DOOR_RIGHT]: OUTDOOR_TILES.guildDoorRight,
+  [TILES.GUILD_FLAG]: OUTDOOR_TILES.guildFlag,
+  [TILES.PULLUP_BAR]: OUTDOOR_TILES.pullupBar,
+  [TILES.PARALLEL_BARS]: OUTDOOR_TILES.parallelBars,
+  [TILES.LIFT_STONES]: OUTDOOR_TILES.liftStones,
+  [TILES.LOG_BENCH]: OUTDOOR_TILES.logBench,
+  [TILES.TRACK_LINE]: OUTDOOR_TILES.trackLine,
+  [TILES.TIRE]: OUTDOOR_TILES.tire,
+  [TILES.KETTLEBELLS]: OUTDOOR_TILES.kettlebells,
+  [TILES.BALANCE_BEAM]: OUTDOOR_TILES.balanceBeam,
+  [TILES.FOUNTAIN]: OUTDOOR_TILES.fountain,
+  [TILES.YOGA_MAT]: OUTDOOR_TILES.yogaMat,
+  [TILES.LILY_PAD]: OUTDOOR_TILES.lilyPad,
+  [TILES.TENT_TOP_LEFT]: OUTDOOR_TILES.tentTopLeft,
+  [TILES.TENT_TOP_RIGHT]: OUTDOOR_TILES.tentTopRight,
+  [TILES.TENT_BOTTOM_LEFT]: OUTDOOR_TILES.tentBottomLeft,
+  [TILES.TENT_BOTTOM_RIGHT]: OUTDOOR_TILES.tentBottomRight,
+  [TILES.CAMPFIRE]: OUTDOOR_TILES.campfire,
+  [TILES.FENCE_H]: OUTDOOR_TILES.fenceH,
+  [TILES.FENCE_V]: OUTDOOR_TILES.fenceV,
+  [TILES.SKULL_POLE]: OUTDOOR_TILES.skullPole,
+  [TILES.CLIFF_TOP]: OUTDOOR_TILES.cliffTop,
+  [TILES.CLIFF]: OUTDOOR_TILES.cliff,
+};
+OUTDOOR_TILES.caveMouth.forEach((map, i) => { PIXEL_TILES[TILES[`CAVE_MOUTH_${i}`]] = map; });
+for (let mask = 1; mask < 16; mask++) {
+  PIXEL_TILES[TILES[`WATER_EDGE_${mask}`]] = OUTDOOR_TILES.waterEdges[mask];
+  PIXEL_TILES[TILES[`DIRT_EDGE_${mask}`]] = OUTDOOR_TILES.dirtEdges[mask];
+}
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -50,49 +120,46 @@ export default class BootScene extends Phaser.Scene {
   // ========================================================================
   //  TILESET GENERATION
   // ========================================================================
+  // Each tile sits in an 18 px cell with its edge pixels copied one pixel outward
+  // (margin 1, spacing 2). At non-integer zoom the GPU samples that copy instead of
+  // the neighbouring tile, which showed up as grass lines between floor boards.
   _generateTileset() {
     const tileKeys = Object.values(TILES);
-    const canvas = this.textures.createCanvas('tileset', tileKeys.length * TILE_SIZE, TILE_SIZE);
+    const cell = TILE_SIZE + 2;
+    const canvas = this.textures.createCanvas('tileset', tileKeys.length * cell, cell);
     const ctx = canvas.getContext();
+    const src = canvas.getSourceImage();
 
     tileKeys.forEach((tileKey) => {
+      const x = tileKey * cell + 1;
       ctx.save();
-      ctx.translate(tileKey * TILE_SIZE, 0);
+      ctx.translate(x, 1);
       this._drawTile(ctx, tileKey);
       ctx.restore();
+
+      const last = TILE_SIZE - 1;
+      ctx.drawImage(src, x, 1, TILE_SIZE, 1, x, 0, TILE_SIZE, 1);                       // top
+      ctx.drawImage(src, x, 1 + last, TILE_SIZE, 1, x, 1 + TILE_SIZE, TILE_SIZE, 1);     // bottom
+      ctx.drawImage(src, x, 0, 1, cell, x - 1, 0, 1, cell);                              // left
+      ctx.drawImage(src, x + last, 0, 1, cell, x + TILE_SIZE, 0, 1, cell);               // right
     });
-    
+
     canvas.refresh();
   }
 
   /** Dispatch drawing for a single tile type */
   _drawTile(ctx, tileKey) {
+    if (PIXEL_TILES[tileKey]) {
+      drawPixelMap(ctx, PIXEL_TILES[tileKey]);
+      return;
+    }
     const C = TILE_COLORS;
     switch (tileKey) {
-      case TILES.GRASS:           this._drawGrass(ctx, C); break;
-      case TILES.GRASS_FLOWER:    this._drawGrassFlower(ctx, C); break;
-      case TILES.DIRT:            this._drawDirt(ctx, C); break;
-      case TILES.WATER:           this._drawWater(ctx, C); break;
       case TILES.WALL_STONE:      this._drawWallStone(ctx, C); break;
-      case TILES.TREE_TRUNK:      this._drawTreeTrunk(ctx, C); break;
-      case TILES.TREE_TOP:        this._drawTreeTop(ctx, C); break;
       case TILES.HOUSE_WALL:      this._drawHouseWall(ctx, C); break;
       case TILES.HOUSE_DOOR:      this._drawHouseDoor(ctx, C); break;
       case TILES.HOUSE_ROOF:      this._drawHouseRoof(ctx, C); break;
-      case TILES.BRIDGE:          this._drawBridge(ctx, C); break;
-      case TILES.STONE_PATH:      this._drawStonePath(ctx, C); break;
-      case TILES.DARK_GRASS:      this._drawDarkGrass(ctx, C); break;
       case TILES.SAND:            this._drawSand(ctx, C); break;
-      case TILES.CHEST:           this._drawChest(ctx, C); break;
-      case TILES.SIGN:            this._drawSign(ctx, C); break;
-      case TILES.GUILD_FLOOR:     this._drawGuildFloor(ctx, C); break;
-      case TILES.GUILD_WALL:      this._drawGuildWall(ctx, C); break;
-      case TILES.DUMBBELL_RACK:   this._drawDumbbellRack(ctx, C); break;
-      case TILES.CARDIO_ZONE:     this._drawCardioZone(ctx, C); break;
-      case TILES.BOOKSHELF:       this._drawBookshelf(ctx, C); break;
-      case TILES.MEDITATION_MAT:  this._drawMeditationMat(ctx, C); break;
-      case TILES.ARENA_FLOOR:     this._drawArenaFloor(ctx, C); break;
-      case TILES.BULLETIN_BOARD:  this._drawBulletinBoard(ctx, C); break;
       case TILES.DUNGEON_FLOOR:   this._drawDungeonFloor(ctx, C); break;
       case TILES.DUNGEON_WALL:    this._drawDungeonWall(ctx, C); break;
       case TILES.LAVA:            this._drawLava(ctx, C); break;
@@ -106,56 +173,6 @@ export default class BootScene extends Phaser.Scene {
   }
 
   // --- Individual tile painters ------------------------------------------------
-
-  _drawGrass(ctx, C) {
-    // Solid green base
-    ctx.fillStyle = C.GRASS || '#4a7c2e';
-    ctx.fillRect(0, 0, 16, 16);
-    // Darker dots for texture
-    ctx.fillStyle = C.GRASS_DARK || '#2d5016';
-    const dots = [[2,3],[7,1],[12,5],[4,10],[9,13],[14,9],[1,14],[10,7]];
-    dots.forEach(([x, y]) => ctx.fillRect(x, y, 1, 1));
-  }
-
-  _drawGrassFlower(ctx, C) {
-    // Grass base first
-    this._drawGrass(ctx, C);
-    // Small flower
-    ctx.fillStyle = '#e94560'; // red petal
-    ctx.fillRect(7, 6, 2, 2);
-    ctx.fillStyle = '#ffd93d'; // gold center
-    ctx.fillRect(8, 6, 1, 1);
-    // Stem
-    ctx.fillStyle = '#2d5016';
-    ctx.fillRect(7, 8, 1, 3);
-  }
-
-  _drawDirt(ctx, C) {
-    ctx.fillStyle = C.DIRT || '#8b6914';
-    ctx.fillRect(0, 0, 16, 16);
-    // Slight lighter variation dots
-    ctx.fillStyle = C.DIRT_LIGHT || '#c4a35a';
-    const spots = [[3,2],[8,5],[13,1],[2,11],[6,14],[11,10],[15,7]];
-    spots.forEach(([x, y]) => ctx.fillRect(x, y, 1, 1));
-    // Darker specs
-    ctx.fillStyle = '#6b4f0a';
-    [[5,8],[10,3],[1,6],[14,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawWater(ctx, C) {
-    ctx.fillStyle = C.WATER || '#2d9cdb';
-    ctx.fillRect(0, 0, 16, 16);
-    // Lighter wave lines
-    ctx.fillStyle = C.WATER_LIGHT || '#7ec8e3';
-    // Wave row 1
-    for (let x = 1; x < 15; x += 3) { ctx.fillRect(x, 4, 2, 1); }
-    // Wave row 2 (offset)
-    for (let x = 3; x < 16; x += 3) { ctx.fillRect(x, 10, 2, 1); }
-    // Deep accents
-    ctx.fillStyle = C.WATER_DEEP || '#1a6b8a';
-    ctx.fillRect(0, 7, 16, 1);
-    ctx.fillRect(6, 13, 3, 1);
-  }
 
   _drawWallStone(ctx, C) {
     ctx.fillStyle = C.STONE || '#888888';
@@ -174,37 +191,6 @@ export default class BootScene extends Phaser.Scene {
     // Highlight pixel on a few bricks
     ctx.fillStyle = '#aaaaaa';
     [[2,1],[10,1],[6,7],[14,7],[2,12],[10,12]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawTreeTrunk(ctx, C) {
-    // Grass base behind the trunk
-    this._drawGrass(ctx, C);
-    // Trunk (centered, bottom half)
-    ctx.fillStyle = C.TREE_TRUNK || '#8b6914';
-    ctx.fillRect(5, 4, 6, 12);
-    // Bark detail
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(6, 6, 1, 8);
-    ctx.fillRect(9, 5, 1, 9);
-    // Highlight
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(7, 7, 1, 4);
-  }
-
-  _drawTreeTop(ctx, C) {
-    // Dark green canopy – diamond / rounded shape
-    ctx.fillStyle = C.TREE_TOP || '#2d5016';
-    // Build a rough circle/diamond
-    ctx.fillRect(5, 0, 6, 1);    // top
-    ctx.fillRect(3, 1, 10, 2);
-    ctx.fillRect(1, 3, 14, 4);
-    ctx.fillRect(2, 7, 12, 3);
-    ctx.fillRect(3, 10, 10, 2);
-    ctx.fillRect(5, 12, 6, 2);
-    ctx.fillRect(6, 14, 4, 2);
-    // Lighter leaf highlights
-    ctx.fillStyle = C.TREE_HIGHLIGHT || '#8fbc5a';
-    [[4,4],[8,2],[11,5],[6,8],[3,6],[10,9],[7,11]].forEach(([x,y]) => ctx.fillRect(x,y,2,1));
   }
 
   _drawHouseWall(ctx, C) {
@@ -258,58 +244,6 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillRect(0, 14, 16, 2);
   }
 
-  _drawBridge(ctx, C) {
-    // Water base underneath
-    ctx.fillStyle = C.WATER || '#2d9cdb';
-    ctx.fillRect(0, 0, 16, 16);
-    // Wooden planks
-    ctx.fillStyle = '#8b6914';
-    for (let y = 0; y < 16; y += 4) {
-      ctx.fillRect(2, y, 12, 3);
-    }
-    // Gaps between planks
-    ctx.fillStyle = '#1a6b8a';
-    for (let y = 3; y < 16; y += 4) {
-      ctx.fillRect(2, y, 12, 1);
-    }
-    // Side rails
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(1, 0, 1, 16);
-    ctx.fillRect(14, 0, 1, 16);
-  }
-
-  _drawStonePath(ctx, C) {
-    ctx.fillStyle = '#999999';
-    ctx.fillRect(0, 0, 16, 16);
-    // Cobblestone outlines
-    ctx.fillStyle = '#666666';
-    // Row 1
-    ctx.fillRect(0, 0, 16, 1);
-    ctx.fillRect(0, 5, 16, 1);
-    ctx.fillRect(0, 10, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    ctx.fillRect(5, 0, 1, 5);
-    ctx.fillRect(11, 0, 1, 5);
-    ctx.fillRect(3, 5, 1, 5);
-    ctx.fillRect(8, 5, 1, 5);
-    ctx.fillRect(13, 5, 1, 5);
-    ctx.fillRect(5, 10, 1, 5);
-    ctx.fillRect(11, 10, 1, 5);
-    // Highlights
-    ctx.fillStyle = '#bbbbbb';
-    [[2,2],[8,2],[13,3],[1,7],[5,7],[10,8],[3,12],[8,12],[14,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-  }
-
-  _drawDarkGrass(ctx, C) {
-    ctx.fillStyle = C.DARK_GRASS || '#2d5016';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#1a3a0a';
-    [[3,2],[9,4],[14,1],[1,9],[7,12],[12,14],[5,7]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
-    // A couple lighter blades
-    ctx.fillStyle = '#4a7c2e';
-    [[6,3],[11,8],[2,13]].forEach(([x,y]) => ctx.fillRect(x,y,1,2));
-  }
-
   _drawSand(ctx, C) {
     ctx.fillStyle = C.SAND || '#e8d5b7';
     ctx.fillRect(0, 0, 16, 16);
@@ -319,146 +253,9 @@ export default class BootScene extends Phaser.Scene {
     [[5,3],[11,6],[3,11],[9,14]].forEach(([x,y]) => ctx.fillRect(x,y,1,1));
   }
 
-  _drawChest(ctx, C) {
-    // Grass behind
-    this._drawGrass(ctx, C);
-    // Chest body
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(2, 6, 12, 8);
-    // Lid (slightly darker)
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(2, 4, 12, 3);
-    // Gold trim / latch
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(2, 6, 12, 1); // rim between lid and body
-    ctx.fillRect(7, 7, 2, 3);  // latch
-    // Keyhole
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(7, 9, 2, 1);
-    // Highlights
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(3, 5, 2, 1);
-    ctx.fillRect(11, 5, 2, 1);
-  }
-
-  _drawSign(ctx, C) {
-    // Grass behind
-    this._drawGrass(ctx, C);
-    // Post
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(7, 7, 2, 9);
-    // Board
-    ctx.fillStyle = '#c4a35a';
-    ctx.fillRect(3, 2, 10, 6);
-    // Board border
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(3, 2, 10, 1);
-    ctx.fillRect(3, 7, 10, 1);
-    ctx.fillRect(3, 2, 1, 6);
-    ctx.fillRect(12, 2, 1, 6);
-    // Text lines (tiny dark lines to suggest writing)
-    ctx.fillStyle = '#333333';
-    ctx.fillStyle = '#5a3a1a';
-    ctx.fillRect(4, 5, 8, 5);
-  }
-
-  // --- New Guild Tile Painters ---
-
-  _drawGuildFloor(ctx, C) {
-    // Polished wood planks
-    ctx.fillStyle = '#4a3b2c';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#3a2b1c';
-    // Planks lines
-    ctx.fillRect(0, 3, 16, 1);
-    ctx.fillRect(0, 7, 16, 1);
-    ctx.fillRect(0, 11, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    // Vertical cuts
-    ctx.fillRect(4, 0, 1, 3);
-    ctx.fillRect(10, 4, 1, 3);
-    ctx.fillRect(6, 8, 1, 3);
-    ctx.fillRect(12, 12, 1, 3);
-  }
-
-  _drawGuildWall(ctx, C) {
-    // Elegant dark stone blocks
-    ctx.fillStyle = '#2c3e50';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#1a252f';
-    ctx.fillRect(0, 7, 16, 1);
-    ctx.fillRect(0, 15, 16, 1);
-    ctx.fillRect(7, 0, 1, 7);
-    ctx.fillRect(14, 8, 1, 7);
-  }
-
-  _drawDumbbellRack(ctx, C) {
-    // Rack base
-    this._drawGuildFloor(ctx, C);
-    ctx.fillStyle = '#7f8c8d'; // metal rack
-    ctx.fillRect(1, 4, 14, 2);
-    ctx.fillRect(1, 10, 14, 2);
-    // Dumbbells
-    ctx.fillStyle = '#2c3e50'; // black iron
-    [2, 6, 10].forEach(x => {
-      ctx.fillRect(x, 3, 3, 4);
-      ctx.fillRect(x, 9, 3, 4);
-    });
-    ctx.fillStyle = '#bdc3c7'; // metal handle
-    [3, 7, 11].forEach(x => {
-      ctx.fillRect(x, 4, 1, 2);
-      ctx.fillRect(x, 10, 1, 2);
-    });
-  }
-
-  _drawCardioZone(ctx, C) {
-    this._drawGuildFloor(ctx, C);
-    // Purple mat/dummy
-    ctx.fillStyle = '#8e44ad';
-    ctx.fillRect(2, 2, 12, 12);
-    ctx.fillStyle = '#9b59b6';
-    ctx.fillRect(3, 3, 10, 10);
-    // Footprints
-    ctx.fillStyle = '#2c3e50';
-    ctx.fillRect(5, 5, 2, 3);
-    ctx.fillRect(9, 8, 2, 3);
-  }
-
-  _drawBookshelf(ctx, C) {
-    // Wood shelf
-    ctx.fillStyle = '#3e2723';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = '#5c4033';
-    ctx.fillRect(1, 1, 14, 14);
-    // Shelves
-    ctx.fillStyle = '#271911';
-    ctx.fillRect(1, 5, 14, 2);
-    ctx.fillRect(1, 10, 14, 2);
-    // Books
-    const bookColors = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6'];
-    for(let i = 0; i < 4; i++) {
-      ctx.fillStyle = bookColors[i % 4];
-      ctx.fillRect(2 + i*3, 2, 2, 3);
-      ctx.fillStyle = bookColors[(i+1) % 4];
-      ctx.fillRect(3 + i*3, 7, 2, 3);
-    }
-  }
-
-  _drawMeditationMat(ctx, C) {
-    this._drawGuildFloor(ctx, C);
-    ctx.fillStyle = '#16a085'; // teal mat
-    ctx.fillRect(3, 2, 10, 12);
-    ctx.fillStyle = '#1abc9c';
-    ctx.fillRect(4, 3, 8, 10);
-    // Incense or candles
-    ctx.fillStyle = '#f1c40f'; // golden flame
-    ctx.fillRect(1, 1, 2, 2);
-    ctx.fillRect(13, 13, 2, 2);
-  }
-
   _drawStudyTable(ctx, C) {
     // Guild floor behind table/chair
-    this._drawGuildFloor(ctx, C);
+    drawPixelMap(ctx, GUILD_TILES.floor);
     
     // Chair (dark wood, placed on the left side of tile)
     ctx.fillStyle = '#3e2723';
@@ -481,29 +278,6 @@ export default class BootScene extends Phaser.Scene {
     ctx.fillRect(10, 7, 2, 3);
     ctx.fillStyle = '#ffd700'; // ribbon
     ctx.fillRect(11, 6, 1, 1);
-  }
-
-
-  _drawArenaFloor(ctx, C) {
-    ctx.fillStyle = C.ARENA_FLOOR?.primary || '#c0392b';
-    ctx.fillRect(0, 0, 16, 16);
-    ctx.fillStyle = C.ARENA_FLOOR?.detail || '#7f8c8d';
-    ctx.fillRect(1, 1, 14, 14);
-    ctx.fillStyle = C.ARENA_FLOOR?.secondary || '#e74c3c';
-    ctx.fillRect(4, 4, 8, 8);
-  }
-
-  _drawBulletinBoard(ctx, C) {
-    ctx.fillStyle = C.BULLETIN_BOARD?.primary || '#7d4e00';
-    ctx.fillRect(0, 2, 16, 12);
-    // Papers
-    ctx.fillStyle = C.BULLETIN_BOARD?.detail || '#e8d5b7';
-    ctx.fillRect(2, 4, 4, 5);
-    ctx.fillRect(8, 5, 5, 4);
-    // Pins
-    ctx.fillStyle = C.BULLETIN_BOARD?.secondary || '#ffd700';
-    ctx.fillRect(4, 3, 1, 1);
-    ctx.fillRect(10, 4, 1, 1);
   }
 
   _drawDungeonFloor(ctx, C) {
@@ -555,492 +329,77 @@ export default class BootScene extends Phaser.Scene {
   // ========================================================================
   //  PLAYER SPRITESHEET   (16×24 per frame, 12 frames → 192×24 strip)
   // ========================================================================
+  // Fable-style visual evolution: a stat at 10+ recolors the hero's outfit
+  _heroEvolution(stats) {
+    if (!stats) return null;
+    const highStr = stats.strength >= 10;
+    const highDex = stats.dexterity >= 10;
+    const highInt = stats.intelligence >= 10;
+    if (highStr && highDex && highInt) return HERO_EVOLUTIONS.master;
+    if (highInt) return HERO_EVOLUTIONS.intelligence;
+    if (highStr) return HERO_EVOLUTIONS.strength;
+    if (highDex) return HERO_EVOLUTIONS.dexterity;
+    return null;
+  }
+
   _generatePlayerSpritesheet(stats = null) {
-    const fw = 16;  // frame width
-    const fh = 24;  // frame height
-    const totalFrames = 12;
-    const sheetW = fw * totalFrames;
-    const sheetH = fh;
+    // Frame order: down(0-2), left(3-5), right(6-8), up(9-11); each is idle + two steps
+    const walkRight = [HERO.side, HERO.sideStride, HERO.sideStrideB];
+    const frames = [
+      HERO.front, liftFoot(HERO.front, 'left'), liftFoot(HERO.front, 'right'),
+      ...walkRight.map(mirror),
+      ...walkRight,
+      HERO.back, liftFoot(HERO.back, 'left'), liftFoot(HERO.back, 'right'),
+    ];
+    const colorSwap = this._heroEvolution(stats);
 
+    // On evolution, repaint the existing texture: removing it would break the
+    // player sprite that is still using its frames
     if (this.textures.exists('player')) {
-      this.textures.remove('player');
+      const canvas = this.textures.get('player');
+      const ctx = canvas.getContext();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      frames.forEach((rows, i) => drawPixelMap(ctx, rows, i * 16, 0, colorSwap));
+      canvas.refresh();
+      return;
     }
-
-    const canvas = this.textures.createCanvas('player', sheetW, sheetH);
-    const ctx = canvas.getContext();
-
-    // Direction order: down(0-2), left(3-5), right(6-8), up(9-11)
-    const directions = ['down', 'left', 'right', 'up'];
-
-    for (let dir = 0; dir < 4; dir++) {
-      for (let frame = 0; frame < 3; frame++) {
-        const ox = (dir * 3 + frame) * fw; // x-offset in the strip
-        this._drawPlayerFrame(ctx, ox, 0, directions[dir], frame, stats);
-      }
-    }
-
-    canvas.refresh();
-
-    // Register spritesheet frame data so Phaser can use frame indices
-    const tex = this.textures.get('player');
-    for (let i = 0; i < totalFrames; i++) {
-      tex.add(i, 0, i * fw, 0, fw, fh);
-    }
+    this._createFrameStrip('player', frames, colorSwap);
   }
 
   /**
    * Draw one player frame at (ox, oy) inside the spritesheet canvas.
    * Visuals evolve based on stats (Fable-style).
    */
-  _drawPlayerFrame(ctx, ox, oy, dir, frame, stats = null) {
-    // ---- Default Palette ----
-    let skin    = '#e8b078';
-    let hair    = '#5a3410';
-    let eyeCol  = '#222222';
-    let tunic   = '#2d7040';
-    let tunicH  = '#3a9955'; // highlight
-    let pants   = '#3b3b6e';
-    let boots   = '#5a3410';
-    let magicAura = false;
-    let strengthBulk = 0;
-
-    // ---- Fable-style Visual Evolution ----
-    if (stats) {
-      const highStr = stats.strength >= 10;
-      const highDex = stats.dexterity >= 10;
-      const highInt = stats.intelligence >= 10;
-      const isMaster = highStr && highDex && highInt;
-
-      if (isMaster) {
-        // Master of all: Bulky, White/Gold robes, Glowing Aura
-        strengthBulk = 2;
-        tunic = '#f8f9fa'; // White
-        tunicH = '#ffd700'; // Gold trim
-        pants = '#222222';
-        magicAura = true;
-      } else {
-        // High Strength: Bulky (wider torso), red/darker clothes
-        if (highStr) {
-          strengthBulk = 2; // pixel width increase
-          tunic = '#702d2d';
-          tunicH = '#993a3a';
-        }
-        
-        // High Dexterity: Slender, dark green/black, rogue style
-        if (highDex && !highStr) {
-          tunic = '#1f3024';
-          tunicH = '#2d5036';
-          pants = '#222222';
-        }
-        
-        // High Intelligence: Purple robes, magic aura
-        if (highInt) {
-          tunic = '#4b2d70';
-          tunicH = '#663a99';
-          magicAura = true;
-        }
-      }
-      
-      // High Resistance/Willpower: Lighter hair / aging effect
-      if (stats.resistance >= 15 || stats.willpower >= 15) {
-        hair = '#aaaaaa'; // gray hair
-      }
-    }
-
-    // ---- Hair (top 3px, centered 10px wide) ----
-    ctx.fillStyle = hair;
-    ctx.fillRect(ox + 3, oy + 0, 10, 3);
-
-    // ---- Head / skin (rows 3–7) ----
-    ctx.fillStyle = skin;
-    ctx.fillRect(ox + 4, oy + 3, 8, 5);
-
-    // ---- Eyes (row 5) – depend on direction ----
-    ctx.fillStyle = eyeCol;
-    if (magicAura) ctx.fillStyle = '#a855f7'; // glowing eyes for high INT
-    if (dir === 'down') {
-      ctx.fillRect(ox + 5, oy + 5, 2, 1);
-      ctx.fillRect(ox + 9, oy + 5, 2, 1);
-    } else if (dir === 'left') {
-      ctx.fillRect(ox + 4, oy + 5, 2, 1);
-    } else if (dir === 'right') {
-      ctx.fillRect(ox + 10, oy + 5, 2, 1);
-    }
-    // 'up' → no eyes visible
-
-    // ---- Tunic body (rows 8–16) ----
-    ctx.fillStyle = tunic;
-    // Apply strength bulk
-    let tWidth = 10;
-    let tX = 3;
-    if (strengthBulk > 0 && (dir === 'down' || dir === 'up')) {
-      tWidth += strengthBulk;
-      tX -= Math.floor(strengthBulk / 2);
-    }
-    ctx.fillRect(ox + tX, oy + 8, tWidth, 9);
-    
-    // Tunic highlight stripe
-    ctx.fillStyle = tunicH;
-    if (dir === 'down' || dir === 'up') {
-      ctx.fillRect(ox + 7, oy + 9, 2, 7);
-    } else if (dir === 'left') {
-      ctx.fillRect(ox + 4, oy + 9, 2, 7);
-    } else {
-      ctx.fillRect(ox + 10, oy + 9, 2, 7);
-    }
-
-    // ---- Belt ----
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(ox + tX, oy + 14, tWidth, 1);
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(ox + 7, oy + 14, 2, 1); // buckle
-
-    // ---- Legs / pants (rows 17–19) ----
-    ctx.fillStyle = pants;
-    const legOffset = frame === 1 ? -1 : frame === 2 ? 1 : 0;
-    // Left leg
-    ctx.fillRect(ox + 4 + (dir === 'left' ? legOffset : 0),  oy + 17, 3, 3);
-    // Right leg
-    ctx.fillRect(ox + 9 + (dir === 'right' ? -legOffset : 0), oy + 17, 3, 3);
-
-    // ---- Boots (rows 20–23) ----
-    ctx.fillStyle = boots;
-    const bootShift = frame === 1 ? -1 : frame === 2 ? 1 : 0;
-    // Left boot
-    ctx.fillRect(ox + 4, oy + 20 + (frame === 1 ? -1 : 0), 3, 4);
-    // Right boot
-    ctx.fillRect(ox + 9, oy + 20 + (frame === 2 ? -1 : 0), 3, 4);
-
-    // Arms – small rectangles on sides
-    ctx.fillStyle = tunic;
-    if (dir === 'down' || dir === 'up') {
-      let armLeftX = 1;
-      let armRightX = 13;
-      if (strengthBulk > 0) { armLeftX -= 1; armRightX += 1; }
-      
-      ctx.fillRect(ox + armLeftX, oy + 9, 2, 6);  // left arm
-      ctx.fillRect(ox + armRightX, oy + 9, 2, 6); // right arm
-      // Skin hands
-      ctx.fillStyle = magicAura ? '#a855f7' : skin;
-      ctx.fillRect(ox + armLeftX, oy + 15, 2, 2);
-      ctx.fillRect(ox + armRightX, oy + 15, 2, 2);
-    } else if (dir === 'left') {
-      ctx.fillRect(ox + 2, oy + 9, 2, 6);
-      ctx.fillStyle = magicAura ? '#a855f7' : skin;
-      ctx.fillRect(ox + 2, oy + 15, 2, 2);
-    } else {
-      ctx.fillRect(ox + 12, oy + 9, 2, 6);
-      ctx.fillStyle = magicAura ? '#a855f7' : skin;
-      ctx.fillRect(ox + 12, oy + 15, 2, 2);
-    }
-  }
 
   // ========================================================================
   //  ENEMY SPRITES
   // ========================================================================
   _generateEnemies() {
-    this._generateSlime();
-    this._generateGoblin();
-    this._generateGoblinBow();
-    this._generateGoblinMage();
-    this._generateSkeleton();
-    this._generateEnemyGoblinKing();
+    // Two frames per enemy: idle and a 1 px "breathing" squash
+    Object.entries(ENEMY_SPRITES).forEach(([key, rows]) => {
+      this._createFrameStrip(key, [rows, breathe(rows)]);
+    });
   }
 
   // ========================================================================
   //  NPC SPRITES  (16×24 per frame, 3 frames idle/walk, single direction)
   // ========================================================================
   _generateNPCs() {
-    const npcConfigs = [
-      { key: 'npc_villager', tunic: '#6b5b3a', tunicH: '#8b7b5a', hair: '#8b6914' },
-      { key: 'npc_smith',    tunic: '#5a2a0a', tunicH: '#7a4a2a', hair: '#2a2a2a' },
-      { key: 'npc_sage',     tunic: '#3a2a6b', tunicH: '#5a4a8b', hair: '#c0c0c0' },
-      { key: 'npc_receptionist', tunic: '#2c3e50', tunicH: '#34495e', hair: '#e67e22' },
-      { key: 'npc_coach_strength', tunic: '#c0392b', tunicH: '#e74c3c', hair: '#2c3e50' },
-      { key: 'npc_coach_cardio', tunic: '#27ae60', tunicH: '#2ecc71', hair: '#f1c40f' },
-      { key: 'npc_monk',     tunic: '#d35400', tunicH: '#e67e22', hair: '#3a2a1a' },
-    ];
-
-    npcConfigs.forEach(cfg => {
-      const fw = 16, fh = 24;
-      const canvas = this.textures.createCanvas(cfg.key, fw * 3, fh);
-      const ctx = canvas.getContext();
-
-      for (let frame = 0; frame < 3; frame++) {
-        const ox = frame * fw;
-        this._drawNPCFrame(ctx, ox, 0, cfg, frame);
-      }
-
-      canvas.refresh();
-      const tex = this.textures.get(cfg.key);
-      for (let i = 0; i < 3; i++) {
-        tex.add(i, 0, i * fw, 0, fw, fh);
-      }
+    Object.entries(NPCS).forEach(([key, rows]) => {
+      this._createFrameStrip(key, [rows, liftFoot(rows, 'left'), liftFoot(rows, 'right')]);
     });
   }
 
-  _drawNPCFrame(ctx, ox, oy, cfg, frame) {
-    const skin = '#d4a574';
-    const hair = cfg.hair;
-    const tunic = cfg.tunic;
-    const tunicH = cfg.tunicH;
-    const pants = '#4a4a3a';
-    const boots = '#3a2a1a';
-
-    // Hair
-    ctx.fillStyle = hair;
-    ctx.fillRect(ox + 3, oy + 0, 10, 3);
-
-    // Head
-    ctx.fillStyle = skin;
-    ctx.fillRect(ox + 4, oy + 3, 8, 5);
-
-    // Eyes
-    ctx.fillStyle = '#222222';
-    ctx.fillRect(ox + 5, oy + 5, 2, 1);
-    ctx.fillRect(ox + 9, oy + 5, 2, 1);
-
-    // Tunic
-    ctx.fillStyle = tunic;
-    ctx.fillRect(ox + 3, oy + 8, 10, 9);
-    ctx.fillStyle = tunicH;
-    ctx.fillRect(ox + 7, oy + 9, 2, 7);
-
-    // Belt
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(ox + 3, oy + 14, 10, 1);
-
-    // Legs
-    ctx.fillStyle = pants;
-    const legOff = frame === 1 ? -1 : frame === 2 ? 1 : 0;
-    ctx.fillRect(ox + 4, oy + 17, 3, 3);
-    ctx.fillRect(ox + 9, oy + 17, 3, 3);
-
-    // Boots
-    ctx.fillStyle = boots;
-    ctx.fillRect(ox + 4, oy + 20 + (frame === 1 ? -1 : 0), 3, 4);
-    ctx.fillRect(ox + 9, oy + 20 + (frame === 2 ? -1 : 0), 3, 4);
-
-    // Arms
-    ctx.fillStyle = tunic;
-    ctx.fillRect(ox + 1, oy + 9, 2, 6);
-    ctx.fillRect(ox + 13, oy + 9, 2, 6);
-    ctx.fillStyle = skin;
-    ctx.fillRect(ox + 1, oy + 15, 2, 2);
-    ctx.fillRect(ox + 13, oy + 15, 2, 2);
-  }
-
-  _generateSlime() {
-    const canvas = this.textures.createCanvas('enemy_slime', 16, 16);
+  /** Draws equally sized pixel maps side by side and registers them as frames 0..n-1. */
+  _createFrameStrip(key, frames, colorSwap = null) {
+    const fw = frames[0][0].length;
+    const fh = frames[0].length;
+    const canvas = this.textures.createCanvas(key, fw * frames.length, fh);
     const ctx = canvas.getContext();
-    // Green blob – wider at bottom
-    ctx.fillStyle = '#3ac55e';
-    ctx.fillRect(3, 8, 10, 6);   // bottom wide
-    ctx.fillRect(4, 5, 8, 3);    // mid
-    ctx.fillRect(5, 3, 6, 2);    // top
-    // Darker edge
-    ctx.fillStyle = '#28a745';
-    ctx.fillRect(3, 13, 10, 1);
-    ctx.fillRect(4, 7, 8, 1);
-    // Eyes
-    ctx.fillStyle = '#111111';
-    ctx.fillRect(5, 7, 2, 2);
-    ctx.fillRect(9, 7, 2, 2);
-    // Eye shine
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(5, 7, 1, 1);
-    ctx.fillRect(9, 7, 1, 1);
-    // Highlight
-    ctx.fillStyle = '#80e89b';
-    ctx.fillRect(6, 4, 2, 1);
+    frames.forEach((rows, i) => drawPixelMap(ctx, rows, i * fw, 0, colorSwap));
     canvas.refresh();
-  }
-
-  _generateGoblin() {
-    const canvas = this.textures.createCanvas('enemy_goblin', 16, 16);
-    const ctx = canvas.getContext();
-    // Head (greenish skin)
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 1, 6, 5);
-    // Pointy ears
-    ctx.fillRect(3, 2, 2, 2);
-    ctx.fillRect(11, 2, 2, 2);
-    // Eyes (angry red)
-    ctx.fillStyle = '#ff3333';
-    ctx.fillRect(6, 3, 2, 1);
-    ctx.fillRect(9, 3, 2, 1);
-    // Body (dark vest)
-    ctx.fillStyle = '#4a3520';
-    ctx.fillRect(5, 6, 6, 5);
-    // Arms (green skin)
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(3, 7, 2, 4);
-    ctx.fillRect(11, 7, 2, 4);
-    // Club in right hand
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(13, 4, 2, 6);
-    ctx.fillStyle = '#6b4f0a';
-    ctx.fillRect(13, 3, 2, 2);
-    // Legs
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 11, 2, 3);
-    ctx.fillRect(9, 11, 2, 3);
-    // Feet
-    ctx.fillStyle = '#4a3520';
-    ctx.fillRect(5, 14, 3, 2);
-    ctx.fillRect(9, 14, 3, 2);
-    canvas.refresh();
-  }
-
-  _generateGoblinBow() {
-    const canvas = this.textures.createCanvas('enemy_goblin_arquero', 16, 16);
-    const ctx = canvas.getContext();
-    // Head (greenish skin)
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 1, 6, 5);
-    // Pointy ears
-    ctx.fillRect(3, 2, 2, 2);
-    ctx.fillRect(11, 2, 2, 2);
-    // Eyes (angry red)
-    ctx.fillStyle = '#ff3333';
-    ctx.fillRect(6, 3, 2, 1);
-    ctx.fillRect(9, 3, 2, 1);
-    // Body (leather vest)
-    ctx.fillStyle = '#b07d4b';
-    ctx.fillRect(5, 6, 6, 5);
-    // Arms (green skin)
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(3, 7, 2, 4);
-    ctx.fillRect(11, 7, 2, 4);
-    // Bow in right hand
-    ctx.fillStyle = '#8b5a2b';
-    ctx.fillRect(13, 5, 2, 6);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(12, 6, 1, 4);
-    // Legs
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 11, 2, 3);
-    ctx.fillRect(9, 11, 2, 3);
-    // Feet
-    ctx.fillStyle = '#4a3520';
-    ctx.fillRect(5, 14, 3, 2);
-    ctx.fillRect(9, 14, 3, 2);
-    canvas.refresh();
-  }
-
-  _generateGoblinMage() {
-    const canvas = this.textures.createCanvas('enemy_goblin_mago', 16, 16);
-    const ctx = canvas.getContext();
-    // Head (greenish skin)
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 2, 6, 4);
-    // Pointy ears
-    ctx.fillRect(3, 3, 2, 2);
-    ctx.fillRect(11, 3, 2, 2);
-    // Eyes (angry red)
-    ctx.fillStyle = '#ff3333';
-    ctx.fillRect(6, 4, 2, 1);
-    ctx.fillRect(9, 4, 2, 1);
-    // Wizard Hat (purple)
-    ctx.fillStyle = '#6c3483';
-    ctx.fillRect(4, 1, 8, 1);
-    ctx.fillRect(5, 0, 6, 1);
-    // Body (purple robe)
-    ctx.fillStyle = '#6c3483';
-    ctx.fillRect(5, 6, 6, 6);
-    // Arms (purple sleeves)
-    ctx.fillStyle = '#6c3483';
-    ctx.fillRect(3, 7, 2, 4);
-    ctx.fillRect(11, 7, 2, 4);
-    // Staff in right hand
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(13, 5, 1, 7);
-    ctx.fillStyle = '#a855f7';
-    ctx.fillRect(12, 3, 3, 2);
-    // Legs
-    ctx.fillStyle = '#6b8e23';
-    ctx.fillRect(5, 12, 2, 2);
-    ctx.fillRect(9, 12, 2, 2);
-    // Feet
-    ctx.fillStyle = '#4a3520';
-    ctx.fillRect(5, 14, 3, 2);
-    ctx.fillRect(9, 14, 3, 2);
-    canvas.refresh();
-  }
-
-  _generateSkeleton() {
-    const canvas = this.textures.createCanvas('enemy_esqueleto', 16, 16);
-    const ctx = canvas.getContext();
-    // Skull
-    ctx.fillStyle = '#e0ddd0';
-    ctx.fillRect(5, 0, 6, 5);
-    // Eye sockets
-    ctx.fillStyle = '#222222';
-    ctx.fillRect(6, 2, 2, 2);
-    ctx.fillRect(9, 2, 2, 2);
-    // Jaw
-    ctx.fillStyle = '#c0bcb0';
-    ctx.fillRect(6, 4, 4, 1);
-    // Spine
-    ctx.fillStyle = '#e0ddd0';
-    ctx.fillRect(7, 5, 2, 2);
-    // Ribcage
-    ctx.fillStyle = '#d0cdc0';
-    ctx.fillRect(4, 7, 8, 3);
-    // Rib lines (dark gaps)
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(5, 7, 1, 3);
-    ctx.fillRect(7, 7, 1, 3);
-    ctx.fillRect(9, 7, 1, 3);
-    ctx.fillRect(11, 7, 1, 3);
-    // Pelvis
-    ctx.fillStyle = '#e0ddd0';
-    ctx.fillRect(5, 10, 6, 1);
-    // Legs (bones)
-    ctx.fillStyle = '#e0ddd0';
-    ctx.fillRect(5, 11, 2, 4);
-    ctx.fillRect(9, 11, 2, 4);
-    // Arms
-    ctx.fillRect(2, 7, 2, 4);
-    ctx.fillRect(12, 7, 2, 4);
-    // Joint dots
-    ctx.fillStyle = '#c0bcb0';
-    ctx.fillRect(3, 10, 1, 1);
-    ctx.fillRect(13, 10, 1, 1);
-    canvas.refresh();
-  }
-
-  _generateEnemyGoblinKing() {
-    const canvas = this.textures.createCanvas('enemy_rey_goblin', 24, 24);
-    const ctx = canvas.getContext();
-    // Body (golden/orange)
-    ctx.fillStyle = '#ff9900';
-    ctx.fillRect(4, 6, 16, 14);
-    // Crown
-    ctx.fillStyle = '#ffd700';
-    ctx.fillRect(6, 2, 12, 4);
-    ctx.fillRect(4, 0, 2, 4);
-    ctx.fillRect(10, 0, 4, 4);
-    ctx.fillRect(18, 0, 2, 4);
-    // Eyes
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(6, 10, 4, 2);
-    ctx.fillRect(14, 10, 4, 2);
-    // Loincloth
-    ctx.fillStyle = '#8b2500';
-    ctx.fillRect(8, 20, 8, 4);
-    // Huge club
-    ctx.fillStyle = '#4a2a0a';
-    ctx.fillRect(18, 4, 6, 16);
-    ctx.fillStyle = '#8b6914';
-    ctx.fillRect(19, 5, 4, 14);
-    // Spikes on club
-    ctx.fillStyle = '#cccccc';
-    ctx.fillRect(17, 6, 2, 2);
-    ctx.fillRect(23, 10, 2, 2);
-    ctx.fillRect(17, 14, 2, 2);
-    
-    canvas.refresh();
+    const tex = this.textures.get(key);
+    frames.forEach((_, i) => tex.add(i, 0, i * fw, 0, fw, fh));
   }
 
   // ========================================================================

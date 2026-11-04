@@ -37,7 +37,6 @@ export default class UIScene extends Phaser.Scene {
   //  CREATE
   // --------------------------------------------------------------------------
   create() {
-    // Make sure this scene renders above everything else
     this.scene.bringToTop();
 
     // ── State ──
@@ -509,7 +508,6 @@ export default class UIScene extends Phaser.Scene {
     this._statsPanelGfx.lineStyle(1, GOLD, 0.5);
     this._statsPanelGfx.strokeRoundedRect(px, py, panelW, totalH, 6);
 
-    // Start hidden
     this._setStatsPanelVisible(false);
   }
 
@@ -645,7 +643,6 @@ export default class UIScene extends Phaser.Scene {
   _switchWeapon(wKey) {
     if (!wKey || wKey === this._activeWpn) return;
     this.setActiveWeapon(wKey);
-    // Emit event so WorldScene (or others) can react
     this.game.events.emit('weapon-change', wKey);
     this.showNotification(`Arma: ${WEAPONS[wKey]?.name || wKey}`, '#ffd700');
   }

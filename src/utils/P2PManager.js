@@ -63,7 +63,6 @@ export default class P2PManager {
 
       this.peer.on('open', (id) => {
         this.peerId = id;
-        console.log('[P2P] Peer listo, ID:', id);
         if (this._onReady) this._onReady(id);
         resolve(id);
       });
@@ -89,7 +88,6 @@ export default class P2PManager {
   becomeHost() {
     this.isHost = true;
     this.hostPeerId = this.peerId;
-    console.log('[P2P] Modo HOST activado. PeerId:', this.peerId);
   }
 
   /**
@@ -111,8 +109,6 @@ export default class P2PManager {
       const peerId = conn.peer;
 
       this.connections.set(peerId, { conn, slot, characterName: 'Jugador' });
-
-      console.log(`[P2P] Guest conectado: ${peerId} → ${slot}`);
 
       // Enviar bienvenida al guest (su slot + lista de otros jugadores)
       const others = [];
@@ -164,7 +160,6 @@ export default class P2PManager {
       const connData = this.connections.get(conn.peer);
       const slot = connData?.slot;
       this.connections.delete(conn.peer);
-      console.log(`[P2P] Guest desconectado: ${conn.peer} (${slot})`);
       if (this._onPlayerLeft) this._onPlayerLeft(conn.peer, slot);
       // Notificar a otros guests
       this._broadcastAll({ type: 'player-left', peerId: conn.peer, slot });
@@ -189,10 +184,6 @@ export default class P2PManager {
     });
 
     this.connections.set(targetHostPeerId, { conn, slot: 'P1', characterName: 'Host' });
-
-    conn.on('open', () => {
-      console.log('[P2P] Guest: conectado al host', targetHostPeerId);
-    });
 
     conn.on('data', (rawData) => {
       try {
@@ -238,7 +229,6 @@ export default class P2PManager {
     });
 
     conn.on('close', () => {
-      console.log('[P2P] Conexión con host cerrada');
       this.connections.delete(targetHostPeerId);
       if (this._onPlayerLeft) this._onPlayerLeft(targetHostPeerId, 'P1');
     });
@@ -338,6 +328,5 @@ export default class P2PManager {
     this.peerId = null;
     this.isHost = false;
     this.hostPeerId = null;
-    console.log('[P2P] Peer destruido.');
   }
 }

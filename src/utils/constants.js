@@ -10,8 +10,16 @@ export const TILE_SIZE = 16;
 export const SCALE = 1; // Phaser will handle zoom
 
 // ── Map ──────────────────────────────────────────────────────
-export const MAP_WIDTH = 60;  // tiles
-export const MAP_HEIGHT = 45; // tiles
+// Size in tiles of each map
+export const MAP_SIZES = {
+  guild: { width: 40, height: 30 },
+  deeproot: { width: 60, height: 45 },
+  cueva_goblin: { width: 60, height: 45 },
+};
+
+export function getMapSize(mapId) {
+  return MAP_SIZES[mapId] || MAP_SIZES.deeproot;
+}
 
 // ── Player ───────────────────────────────────────────────────
 export const PLAYER_SPEED = 120;
@@ -167,7 +175,59 @@ export const TILES = {
   LAVA: 26,
   CAVE_ENTRANCE: 27,
   STUDY_TABLE: 28,
+  GUILD_BANNER: 29,
+  RECEPTION_DESK: 30,
+  GUILD_WALL_TORCH: 31,
+  GUILD_RUG: 32,
+  GUILD_PLANT: 33,
+  TRAINING_DUMMY: 34,
+  GUILD_FLAGSTONE: 35,
+  GUILD_CHEST: 36,
+  SIGN_EXIT: 37,
+  SIGN_ARENA: 38,
+  ARENA_DUMMY: 39,
+  BUSH: 40,
+  ROCK: 41,
+  MUSHROOMS: 42,
+  GUILD_ROOF: 43,
+  GUILD_FACADE: 44,
+  GUILD_WINDOW: 45,
+  GUILD_DOOR_LEFT: 46,
+  GUILD_DOOR_RIGHT: 47,
+  GUILD_FLAG: 48,
+  PULLUP_BAR: 49,
+  PARALLEL_BARS: 50,
+  LIFT_STONES: 51,
+  LOG_BENCH: 52,
+  TRACK_LINE: 53,
+  TIRE: 54,
+  KETTLEBELLS: 55,
+  BALANCE_BEAM: 56,
+  FOUNTAIN: 57,
+  YOGA_MAT: 58,
+  LILY_PAD: 59,
+  TENT_TOP_LEFT: 60,
+  TENT_TOP_RIGHT: 61,
+  TENT_BOTTOM_LEFT: 62,
+  TENT_BOTTOM_RIGHT: 63,
+  CAMPFIRE: 64,
+  FENCE_H: 65,
+  FENCE_V: 66,
+  SKULL_POLE: 67,
+  CLIFF_TOP: 68,
+  CLIFF: 69,
 };
+
+// Cave mouth (4×2, ids 70-77) and the autotile edge variants of water (78-92)
+// and dirt (93-107). An edge variant's mask lists the sides that border other
+// terrain: 1 north, 2 east, 4 south, 8 west.
+const CAVE_MOUTH_FIRST = 70;
+for (let i = 0; i < 8; i++) TILES[`CAVE_MOUTH_${i}`] = CAVE_MOUTH_FIRST + i;
+for (let mask = 1; mask < 16; mask++) TILES[`WATER_EDGE_${mask}`] = 77 + mask;
+for (let mask = 1; mask < 16; mask++) TILES[`DIRT_EDGE_${mask}`] = 92 + mask;
+
+export const waterTile = (mask) => (mask ? TILES[`WATER_EDGE_${mask}`] : TILES.WATER);
+export const dirtTile = (mask) => (mask ? TILES[`DIRT_EDGE_${mask}`] : TILES.DIRT);
 
 // ── Solid Tiles (impassable) ─────────────────────────────────
 export const SOLID_TILES = [
@@ -185,36 +245,52 @@ export const SOLID_TILES = [
   TILES.DUNGEON_WALL,
   TILES.LAVA,
   TILES.STUDY_TABLE,
+  TILES.GUILD_BANNER,
+  TILES.RECEPTION_DESK,
+  TILES.GUILD_WALL_TORCH,
+  TILES.GUILD_PLANT,
+  TILES.TRAINING_DUMMY,
+  TILES.GUILD_CHEST,
+  TILES.SIGN_EXIT,
+  TILES.SIGN_ARENA,
+  TILES.ARENA_DUMMY,
+  TILES.BUSH,
+  TILES.ROCK,
+  TILES.GUILD_ROOF,
+  TILES.GUILD_FACADE,
+  TILES.GUILD_WINDOW,
+  TILES.GUILD_FLAG,
+  TILES.PULLUP_BAR,
+  TILES.PARALLEL_BARS,
+  TILES.LIFT_STONES,
+  TILES.LOG_BENCH,
+  TILES.TIRE,
+  TILES.KETTLEBELLS,
+  TILES.BALANCE_BEAM,
+  TILES.FOUNTAIN,
+  TILES.LILY_PAD,
+  TILES.TENT_TOP_LEFT,
+  TILES.TENT_TOP_RIGHT,
+  TILES.TENT_BOTTOM_LEFT,
+  TILES.TENT_BOTTOM_RIGHT,
+  TILES.CAMPFIRE,
+  TILES.FENCE_H,
+  TILES.FENCE_V,
+  TILES.SKULL_POLE,
+  TILES.CLIFF_TOP,
+  TILES.CLIFF,
+  ...Array.from({ length: 15 }, (_, i) => TILES[`WATER_EDGE_${i + 1}`]),
 ];
 
 // ── Tile Colors (16-bit pixel-art palette) ───────────────────
 // Each tile has primary, secondary, and detail colors for
 // procedural rendering with visual variety.
 export const TILE_COLORS = {
-  [TILES.GRASS]:        { primary: 0x4a7c2e, secondary: 0x5a8c3e, detail: 0x3a6c1e },
-  [TILES.GRASS_FLOWER]: { primary: 0x4a7c2e, secondary: 0x5a8c3e, detail: 0xff6b6b },
-  [TILES.DIRT]:         { primary: 0x8b6914, secondary: 0x9b7924, detail: 0x7b5904 },
-  [TILES.WATER]:        { primary: 0x2d9cdb, secondary: 0x1a6b8a, detail: 0x7ec8e3 },
   [TILES.WALL_STONE]:   { primary: 0x6b6b6b, secondary: 0x7b7b7b, detail: 0x5b5b5b },
-  [TILES.TREE_TRUNK]:   { primary: 0x5a3a1a, secondary: 0x6a4a2a, detail: 0x4a2a0a },
-  [TILES.TREE_TOP]:     { primary: 0x2d5016, secondary: 0x3d6026, detail: 0x1d4006 },
   [TILES.HOUSE_WALL]:   { primary: 0xc4a35a, secondary: 0xd4b36a, detail: 0xb4934a },
   [TILES.HOUSE_DOOR]:   { primary: 0x5a3a1a, secondary: 0x6a4a2a, detail: 0xffd700 },
   [TILES.HOUSE_ROOF]:   { primary: 0x8b2500, secondary: 0x9b3510, detail: 0x7b1500 },
-  [TILES.BRIDGE]:       { primary: 0x8b6914, secondary: 0x7b5904, detail: 0x5a3a1a },
-  [TILES.STONE_PATH]:   { primary: 0x9b9b8b, secondary: 0x8b8b7b, detail: 0xababab },
-  [TILES.DARK_GRASS]:   { primary: 0x2d5016, secondary: 0x3d6026, detail: 0x1d4006 },
   [TILES.SAND]:         { primary: 0xe8d5b7, secondary: 0xd8c5a7, detail: 0xf0ddc0 },
-  [TILES.CHEST]:        { primary: 0x8b6914, secondary: 0xffd700, detail: 0x5a3a1a },
-  [TILES.SIGN]:         { primary: 0x8b6914, secondary: 0x5a3a1a, detail: 0xc4a35a },
-  [TILES.GUILD_FLOOR]:  { primary: 0x4a3b2c, secondary: 0x5a4b3c, detail: 0x3a2b1c }, // Polished wood
-  [TILES.GUILD_WALL]:   { primary: 0x2c3e50, secondary: 0x34495e, detail: 0x1a252f }, // Elegant dark stone
-  [TILES.DUMBBELL_RACK]:{ primary: 0x7f8c8d, secondary: 0x95a5a6, detail: 0x2c3e50 }, // Metal and iron weights
-  [TILES.CARDIO_ZONE]:  { primary: 0x8e44ad, secondary: 0x9b59b6, detail: 0x2c3e50 }, // Purple mats/dummies
-  [TILES.BOOKSHELF]:    { primary: 0x5c4033, secondary: 0x3e2723, detail: 0xd4af37 }, // Wood and gold-trimmed books
-  [TILES.MEDITATION_MAT]:{primary: 0x16a085, secondary: 0x1abc9c, detail: 0xf1c40f }, // Teal mats with incense
-  [TILES.ARENA_FLOOR]:  { primary: 0xc0392b, secondary: 0xe74c3c, detail: 0x7f8c8d }, // Reddish combat floor
-  [TILES.BULLETIN_BOARD]:{ primary: 0x7d4e00, secondary: 0xffd700, detail: 0xe8d5b7 }, // Wooden board with gold notices
   [TILES.DUNGEON_FLOOR]: { primary: 0x2b2b2b, secondary: 0x3b3b3b, detail: 0x1b1b1b }, // Dark stone floor
   [TILES.DUNGEON_WALL]:  { primary: 0x111111, secondary: 0x222222, detail: 0x050505 }, // Pitch black/dark grey wall
   [TILES.LAVA]:          { primary: 0xff4500, secondary: 0xd93800, detail: 0xff8c00 }, // Bright orange/red lava
@@ -230,7 +306,6 @@ export const ENEMIES = {
     damage: 3,
     speed: 40,
     xp: 10,
-    color: 0x4caf50,
     size: 12,
     aggroRange: 80,
     patrolRange: 60,
@@ -242,7 +317,6 @@ export const ENEMIES = {
     damage: 11,
     speed: 25,
     xp: 25,
-    color: 0x7cb342,
     size: 14,
     aggroRange: 100,
     patrolRange: 80,
@@ -254,7 +328,6 @@ export const ENEMIES = {
     damage: 3,
     speed: 75,
     xp: 25,
-    color: 0x8bc34a,
     size: 13,
     aggroRange: 140,
     patrolRange: 80,
@@ -266,7 +339,6 @@ export const ENEMIES = {
     damage: 18,
     speed: 30,
     xp: 30,
-    color: 0x9b59b6,
     size: 13,
     aggroRange: 130,
     patrolRange: 60,
@@ -278,7 +350,6 @@ export const ENEMIES = {
     damage: 9,
     speed: 45,
     xp: 40,
-    color: 0xe0e0e0,
     size: 14,
     aggroRange: 120,
     patrolRange: 70,
@@ -290,7 +361,6 @@ export const ENEMIES = {
     damage: 15,
     speed: 50,
     xp: 300,
-    color: 0xff9900, // Golden/Orange goblin
     size: 24,        // Big boss
     aggroRange: 180,
     patrolRange: 100,

@@ -78,7 +78,11 @@ export default class DailyMissionSystem {
       claimed:  this.claimed,
       notified: this.notified,
     };
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) {}
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn('[DailyMissions] Failed to save progress:', e);
+    }
   }
 
   // ── Tracking ─────────────────────────────────────────────────────────────
@@ -146,7 +150,6 @@ export default class DailyMissionSystem {
   _isComplete(m) {
     const prog = this.progress[m.id] || 0;
     if (prog < m.count) return false;
-    // Check extra kill if needed
     if (m.extraKill) {
       const extra = this.progress[`${m.id}_extra`] || 0;
       if (extra < m.extraKill.count) return false;
