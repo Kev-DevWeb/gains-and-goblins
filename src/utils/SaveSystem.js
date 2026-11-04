@@ -191,8 +191,12 @@ export default class SaveSystem {
   static async _reloadFromServer() {
     const { data, error } = await supabase.rpc('get_character');
     if (error || !data?.character) return;
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
-    window.dispatchEvent(new CustomEvent('character-synced', { detail: data }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      ...data.character,
+      lastSaveDate: new Date().toISOString().split('T')[0],
+      savedAt: Date.now(),
+    }));
+    window.dispatchEvent(new CustomEvent('character-synced', { detail: { ...data, reloaded: true } }));
   }
 
   /**
