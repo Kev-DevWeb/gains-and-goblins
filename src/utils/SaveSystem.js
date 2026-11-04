@@ -25,10 +25,16 @@ function friendlyError(error) {
   return AUTH_ERRORS[error.message] || error.message;
 }
 
+// The cached hero belongs to one account: drop it when another one signs in
+function claimCache(userId) {
+  if (localStorage.getItem(USER_ID_KEY) !== userId) localStorage.removeItem(SAVE_KEY);
+  localStorage.setItem(USER_ID_KEY, userId);
+}
+
 // Keep the cached user id in step with Supabase (sign-out, expired session, Google redirect)
 supabase.auth.onAuthStateChange((_event, session) => {
   if (session?.user) {
-    localStorage.setItem(USER_ID_KEY, session.user.id);
+    claimCache(session.user.id);
   } else {
     localStorage.removeItem(USER_ID_KEY);
   }
@@ -96,6 +102,7 @@ export default class SaveSystem {
       localStorage.removeItem(SAVE_KEY);
       return null;
     }
+    claimCache(session.user.id);
 
     try {
       let { data, error } = await supabase.rpc('get_character');
@@ -162,6 +169,9 @@ export default class SaveSystem {
     const { data: result, error } = await supabase.rpc('sync_character', { p_data: payload });
     if (error) {
       console.warn('[SaveSystem] Asynchronous server sync failed:', error.message);
+      // A rejected save leaves the local copy ahead of the server, and every later
+      // save would be rejected the same way: start again from the server's copy
+      if (error.code === 'P0001') await this._reloadFromServer();
       return;
     }
 
@@ -176,6 +186,13 @@ export default class SaveSystem {
 
     // Dispatch a global event so the game scene updates if there are modifications
     window.dispatchEvent(new CustomEvent('character-synced', { detail: result }));
+  }
+
+  static async _reloadFromServer() {
+    const { data, error } = await supabase.rpc('get_character');
+    if (error || !data?.character) return;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data.character));
+    window.dispatchEvent(new CustomEvent('character-synced', { detail: data }));
   }
 
   /**
