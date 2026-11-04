@@ -34,6 +34,8 @@ export default class P2PManager {
 
     this.isHost = false;
     this.hostPeerId = null;  // Para guests: el peerId del host
+    // Para el host: peers que aceptaron una invitación y aún no se han conectado
+    this._expectedGuests = new Set();
 
     // Callbacks
     this._onPlayerJoined = null;   // (peerId, characterName, slot, x, y) => void
@@ -91,9 +93,21 @@ export default class P2PManager {
   }
 
   /**
+   * Permite una conexión de este peer. Sin esto, cualquiera que viera nuestro
+   * peerId en el lobby podría entrar a la sala sin invitación.
+   */
+  expectGuest(peerId) {
+    if (peerId) this._expectedGuests.add(peerId);
+  }
+
+  /**
    * Maneja una nueva conexión entrante de un guest.
    */
   _handleIncomingConnection(conn) {
+    if (!this._expectedGuests.delete(conn.peer)) {
+      conn.close();
+      return;
+    }
     if (this.connections.size >= MAX_PLAYERS - 1) {
       // Sala llena, rechazar
       conn.on('open', () => {

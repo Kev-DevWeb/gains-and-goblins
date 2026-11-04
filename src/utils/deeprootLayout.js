@@ -57,6 +57,7 @@ export const DEEPROOT_LAYOUT = [
   'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
 ];
 
+// open_chest in supabase/migrations/20261021050000_reward_limits.sql lists the same spots
 export const DEEPROOT_CHEST_SPOTS = [
   { x: 41, y: 7 },
   { x: 16, y: 18 },
