@@ -63,14 +63,16 @@ reset role; update public.characters set branch_points = '{"strength":1,"dexteri
 select t.check('asignacion valida', (public.sync_character('{"stats":{"strength":6,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":0,"dexterity":0,"intelligence":0,"willpower":0}}')->'character'->>'strength')::int = 6);
 select t.check('branchPoints conserva datos extra', (select branch_points->'spells' from public.characters) = '["shield"]');
 select t.check('trampa en puntos rechazada', t.err($$select public.sync_character('{"stats":{"strength":9,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":0}}')$$) like '%inválida%');
-reset role; update public.characters set strength=8,resistance=8,dexterity=8,speed=8,intelligence=8,max_mana=8,willpower=8,charisma=8,level=1 where user_id = :A; set role authenticated;
+reset role; update public.characters set strength=8,resistance=8,dexterity=8,speed=8,intelligence=8,max_mana=8,willpower=8,charisma=8,level=1, last_synced_at = now() - interval '1 hour' where user_id = :A; set role authenticated;
 select t.check('sube 2 niveles (1 -> 4 con 160 xp)', (public.sync_character('{"xp":160}')->'character'->>'level')::int = 4);
-reset role; update public.characters set charisma=6, level=1, xp=0 where user_id = :A; set role authenticated;
+reset role; update public.characters set charisma=6, level=1, xp=0, last_synced_at = now() - interval '1 hour' where user_id = :A; set role authenticated;
 select t.check('nivel bloqueado por stat bajo', (select (r->>'blockedLevelUp')::boolean and (r->'character'->>'level')::int = 2 and (r->>'requiredStatValue')::int = 7
   from (select public.sync_character('{"xp":160}') r) s));
 reset role; update public.characters set level=1, xp=0 where user_id = :A; set role authenticated;
 select t.check('49 xp no sube', (public.sync_character('{"xp":49}')->'character'->>'level')::int = 1);
-select t.check('guardado normal con campos null', (public.sync_character('{"xp":20,"newActivityLogged":null,"activitiesToday":null}')->'character'->>'xp')::int = 20);
+select t.check('guardado normal con campos null', (public.sync_character('{"xp":60,"newActivityLogged":null,"activitiesToday":null}')->'character'->>'xp')::int = 60);
+select t.check('la xp no baja', (public.sync_character('{"xp":10}')->'character'->>'xp')::int = 60);
+select t.check('la xp sube como mucho 100 de golpe', (select x between 160 and 170 from (select (public.sync_character('{"xp":999999}')->'character'->>'xp')::int x offset 0) s));
 reset role; update public.characters set activities_today = '{"chestCooldowns":{"guild_1_1":123}}' where user_id = :A; set role authenticated;
 select public.sync_character('{"moral":3,"newActivityLogged":{"type":"strength"},"activitiesToday":{"bar":2,"chestCooldowns":{}}}');
 select t.check('actividad registrada', (select count(*) from public.activities) = 1);
@@ -135,11 +137,26 @@ select t.check('slime da 1-3 de oro', (select bool_and(g between 1 and 3) from (
 select t.check('gelatina se apila', (select (inventory->0->>'id') = 'quest_slime_jelly' and jsonb_array_length(inventory) = 1 and (inventory->0->>'count')::int between 5 and 30 from public.characters));
 select t.check('Rey Goblin da 150', (public.enemy_killed('Rey Goblin')->>'goldDrop')::int = 150);
 select t.check('oro acumulado coincide', (select gold between 180 and 240 from public.characters));
+select t.check('otro jefe enseguida no da 150', (select g between 1 and 3 from (select (public.enemy_killed('Rey Goblin')->>'goldDrop')::int g offset 0) s));
+select public.enemy_killed('Slime') from generate_series(1, 28);
+select t.check('mas de 60 muertes por minuto no dan oro', (public.enemy_killed('Slime')->>'goldDrop')::int = 0);
+reset role; update public.characters set kill_window_start = now() - interval '2 minutes', last_boss_reward_at = now() - interval '3 minutes' where user_id = :A; set role authenticated;
+select t.check('pasado el minuto vuelven a dar oro', (select g between 1 and 3 from (select (public.enemy_killed('Slime')->>'goldDrop')::int g offset 0) s));
+select t.check('pasados 2 minutos el jefe paga otra vez', (public.enemy_killed('Rey Goblin')->>'goldDrop')::int = 150);
 
 -- ── Chests ────────────────────────────────────────────────────────
 select t.check('cofre de cueva da 80-150', (select g between 80 and 150 from (select (public.open_chest('cueva_goblin', 3, 4)->>'goldDrop')::int g offset 0) s));
 select t.check('mismo cofre en cooldown', t.err($$select public.open_chest('cueva_goblin', 3, 4)$$) like '%cooldown%');
 select t.check('otro cofre si se abre', (select g between 80 and 150 from (select (public.open_chest('cueva_goblin', 9, 9)->>'goldDrop')::int g offset 0) s));
+select t.check('cofre fuera del mapa', t.err($$select public.open_chest('cueva_goblin', 500, 9)$$) like '%ningún cofre%');
+select t.check('mapa inventado', t.err($$select public.open_chest('luna', 1, 1)$$) like '%ningún cofre%');
+select public.open_chest('cueva_goblin', 10, 10); select public.open_chest('cueva_goblin', 11, 11); select public.open_chest('cueva_goblin', 12, 12);
+select t.check('la cueva no tiene mas de 5 cofres a la vez', t.err($$select public.open_chest('cueva_goblin', 13, 13)$$) like '%ningún cofre%');
+select t.check('cofre de Deeproot en su sitio', (select g between 40 and 80 from (select (public.open_chest('deeproot', 41, 7)->>'goldDrop')::int g offset 0) s));
+select t.check('Deeproot sin cofre ahi', t.err($$select public.open_chest('deeproot', 30, 30)$$) like '%ningún cofre%');
+reset role; update public.characters set activities_today = jsonb_set(activities_today, '{chestCooldowns,cueva_goblin_3_4}', '1') where user_id = :A; set role authenticated;
+select public.open_chest('deeproot', 16, 18);
+select t.check('los cooldowns vencidos se borran', (select not (activities_today->'chestCooldowns' ? 'cueva_goblin_3_4') from public.characters));
 
 -- ── Shop and items ────────────────────────────────────────────────
 reset role; update public.characters set gold = 30, inventory = '[]' where user_id = :A; set role authenticated;

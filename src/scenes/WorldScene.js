@@ -622,7 +622,8 @@ export default class WorldScene extends Phaser.Scene {
       
       const goldDrop = data.goldDrop;
       if (uiScene && uiScene.showNotification) {
-        uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
+        // The server pays nothing past its kill limit
+        if (goldDrop > 0) uiScene.showNotification(`+${goldDrop} Oro`, '#ffd700');
         if (data.droppedItem) {
           uiScene.showNotification(`+1 ${data.droppedItem.name}`, '#2ecc71');
         }
