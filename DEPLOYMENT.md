@@ -1,48 +1,39 @@
 # Deployment Guide
 
-This project is designed as a split deployment:
+The game is a static site on Vercel that talks straight to Supabase:
 
 - Frontend: Vercel
-- Backend: Railway or another always-on Node host
-- Database: Neon PostgreSQL
+- Accounts, database and game rules: Supabase (Auth, Postgres and RPC functions)
+- Lobby and invites: Supabase Realtime; the game itself runs peer to peer through PeerJS
 
-## Railway backend setup
+The `server/` folder is the old Express backend for Railway. The game no longer uses it.
 
-Because the backend lives in the `server/` folder, Railway must deploy that subproject instead of the repository root.
+## Supabase setup
 
-1. Open your Railway service settings.
-2. Click `Add Root Directory` and select `server`.
-3. In `Variables`, add `DATABASE_URL`, `FRONTEND_URL` and `JWT_SECRET`.
-4. Make sure the start command is `npm start`.
-5. Deploy the service.
+1. Create a project at [supabase.com](https://supabase.com).
+2. In `SQL Editor`, run every file in `supabase/migrations/` in name order. Each one is safe to run again.
+3. In `Authentication → URL Configuration`, set `Site URL` to your Vercel URL and add it to `Redirect URLs` with `/**` at the end (for example `https://your-project.vercel.app/**`). Add the preview URLs you use too.
+4. For Google login: create an OAuth client in Google Cloud and paste its client id and secret in `Authentication → Providers → Google`. The secret goes only there, never in the frontend.
 
-If Railway asks for a build command, use `npm install` or leave it empty if the service runs `npm start` directly.
+Free projects pause after a week without activity. Restore them from the project overview.
 
 ## Environment variables
 
-Frontend on Vercel:
+Frontend on Vercel (type `Config`, for Production and Preview):
 
-- `VITE_API_URL` = public backend URL, for example `https://your-backend-domain.example/api`
+- `VITE_SUPABASE_URL` = `https://<project-ref>.supabase.co`
+- `VITE_SUPABASE_ANON_KEY` = the project's anon (public) key from `Project Settings → API`
 
-Backend on Railway/Render/VPS:
-
-- `PORT` = hosting platform port or `3001`
-- `FRONTEND_URL` = your public Vercel URL, for example `https://your-project.vercel.app`
-- `DATABASE_URL` = Neon connection string
-- `JWT_SECRET` = long random string used to sign login tokens. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. If it is missing, the server uses a temporary secret and every player is logged out on each restart.
-- `FITBIT_CLIENT_ID`, `FITBIT_CLIENT_SECRET` = credentials from your Fitbit developer app
-- `FITBIT_REDIRECT_URI` = `https://your-backend-domain.example/api/auth/fitbit/callback` (must match the URL registered in the Fitbit app)
-
-## Recommended flow for testers
-
-1. Deploy the backend first.
-2. Copy its public URL into `VITE_API_URL` on Vercel.
-3. Copy the Vercel URL into `FRONTEND_URL` on the backend host.
-4. Redeploy both services.
+Vite bakes these into the build, so redeploy after changing them. Never put the `service_role` key in the frontend.
 
 ## Quick check
 
-- Backend health: `GET /api/health`
-- Auth endpoints: `POST /api/auth/register` and `POST /api/auth/login`
+- The login screen shows the Google button and no configuration error.
+- Registering creates a row in the `characters` table.
+- Logging an activity in game adds a row to `activities`.
 
-If the frontend still tries to call `localhost`, the Vercel environment variable is missing or not set in the production deployment.
+If the page says Supabase is not configured, one of the two variables is missing from that deployment.
+
+## Testing the game rules
+
+`supabase/tests/game_rules.test.sql` checks the rules against a throwaway local Postgres. The commands are at the top of the file.
