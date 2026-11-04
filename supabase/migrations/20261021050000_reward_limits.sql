@@ -1,12 +1,13 @@
 -- Simple limits on rewards the server cannot verify, because combat and
 -- chest placement happen in the browser:
--- * XP never goes down and grows at most 100 + 10 per second since the last save;
+-- * XP never goes down and is paid from a budget that refills 10 per second up to 2000;
 -- * at most 60 kills a minute earn loot, and a boss pays 150 gold once every 2 minutes;
 -- * chests must be on the map: Deeproot's fixed spots, or inside the guild or the
 --   cave with no more open cooldowns there than the map has chests.
 
 alter table public.characters
   add column if not exists last_synced_at timestamptz not null default now(),
+  add column if not exists xp_budget int not null default 500,
   add column if not exists kill_window_start timestamptz not null default now(),
   add column if not exists kill_window_count int not null default 0,
   add column if not exists last_boss_reward_at timestamptz;
@@ -30,7 +31,7 @@ declare
   new_xp int;
   growth record;
   stats_before jsonb;
-  max_xp_gain int;
+  v_xp_budget int;
 begin
   c := public.my_character_for_update();
 
@@ -93,14 +94,17 @@ begin
     v_branch_points := null;
   end if;
 
-  -- XP never goes down and grows at most as fast as the game can hand it out
-  max_xp_gain := least(2000, 100 + 10 * extract(epoch from now() - c.last_synced_at)::int);
-  new_xp := least(greatest(coalesce((p_data->>'xp')::int, c.xp), c.xp), c.xp + max_xp_gain);
+  -- XP never goes down and is paid from a budget that refills as fast as the
+  -- game can hand XP out, so repeated saves cannot mint more
+  v_xp_budget := least(2000, c.xp_budget + 10 * extract(epoch from now() - c.last_synced_at)::int);
+  new_xp := least(greatest(coalesce((p_data->>'xp')::int, c.xp), c.xp), c.xp + v_xp_budget);
+  v_xp_budget := v_xp_budget - (new_xp - c.xp);
   growth := public.compute_level_up(c.level, new_xp, coalesce(v_stats, public.character_json(c)));
 
   update public.characters set
     xp = new_xp,
     last_synced_at = now(),
+    xp_budget = v_xp_budget,
     moral = coalesce((p_data->>'moral')::int, moral),
     level = growth.level,
     last_activity_at = case when v_new_activity is not null then now() else last_activity_at end,

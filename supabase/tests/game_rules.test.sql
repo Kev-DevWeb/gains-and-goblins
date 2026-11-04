@@ -63,16 +63,18 @@ reset role; update public.characters set branch_points = '{"strength":1,"dexteri
 select t.check('asignacion valida', (public.sync_character('{"stats":{"strength":6,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":0,"dexterity":0,"intelligence":0,"willpower":0}}')->'character'->>'strength')::int = 6);
 select t.check('branchPoints conserva datos extra', (select branch_points->'spells' from public.characters) = '["shield"]');
 select t.check('trampa en puntos rechazada', t.err($$select public.sync_character('{"stats":{"strength":9,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":0}}')$$) like '%inválida%');
-reset role; update public.characters set strength=8,resistance=8,dexterity=8,speed=8,intelligence=8,max_mana=8,willpower=8,charisma=8,level=1, last_synced_at = now() - interval '1 hour' where user_id = :A; set role authenticated;
+reset role; update public.characters set strength=8,resistance=8,dexterity=8,speed=8,intelligence=8,max_mana=8,willpower=8,charisma=8,level=1, xp_budget = 2000 where user_id = :A; set role authenticated;
 select t.check('sube 2 niveles (1 -> 4 con 160 xp)', (public.sync_character('{"xp":160}')->'character'->>'level')::int = 4);
-reset role; update public.characters set charisma=6, level=1, xp=0, last_synced_at = now() - interval '1 hour' where user_id = :A; set role authenticated;
+reset role; update public.characters set charisma=6, level=1, xp=0, xp_budget = 2000 where user_id = :A; set role authenticated;
 select t.check('nivel bloqueado por stat bajo', (select (r->>'blockedLevelUp')::boolean and (r->'character'->>'level')::int = 2 and (r->>'requiredStatValue')::int = 7
   from (select public.sync_character('{"xp":160}') r) s));
 reset role; update public.characters set level=1, xp=0 where user_id = :A; set role authenticated;
 select t.check('49 xp no sube', (public.sync_character('{"xp":49}')->'character'->>'level')::int = 1);
 select t.check('guardado normal con campos null', (public.sync_character('{"xp":60,"newActivityLogged":null,"activitiesToday":null}')->'character'->>'xp')::int = 60);
 select t.check('la xp no baja', (public.sync_character('{"xp":10}')->'character'->>'xp')::int = 60);
-select t.check('la xp sube como mucho 100 de golpe', (select x between 160 and 170 from (select (public.sync_character('{"xp":999999}')->'character'->>'xp')::int x offset 0) s));
+reset role; update public.characters set xp_budget = 100, last_synced_at = now() where user_id = :A; set role authenticated;
+select t.check('la xp no supera el presupuesto', (select x between 160 and 170 from (select (public.sync_character('{"xp":999999}')->'character'->>'xp')::int x offset 0) s));
+select t.check('guardar otra vez enseguida no da mas xp', (select x between 160 and 175 from (select (public.sync_character('{"xp":999999}')->'character'->>'xp')::int x offset 0) s));
 reset role; update public.characters set activities_today = '{"chestCooldowns":{"guild_1_1":123}}' where user_id = :A; set role authenticated;
 select public.sync_character('{"moral":3,"newActivityLogged":{"type":"strength"},"activitiesToday":{"bar":2,"chestCooldowns":{}}}');
 select t.check('actividad registrada', (select count(*) from public.activities) = 1);
