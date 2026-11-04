@@ -105,7 +105,8 @@ export default class Lobby extends Phaser.Events.EventEmitter {
       this.emit('invite-declined', { inviteId, guestEmail: invite.toEmail });
       return;
     }
-    this.emit('invite-accepted', { inviteId, role: 'host', guestCharacterName });
+    const guestPeerId = this._presenceOf(invite.toUserId)?.peerJsId || null;
+    this.emit('invite-accepted', { inviteId, role: 'host', guestCharacterName, guestPeerId });
   }
 
   destroy() {

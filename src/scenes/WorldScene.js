@@ -503,13 +503,14 @@ export default class WorldScene extends Phaser.Scene {
 
   _setupInviteEvents() {
     // invite-accepted: nos dice nuestro rol
-    this.lobby.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, hostCharacterName }) => {
+    this.lobby.on('invite-accepted', ({ role, hostPeerId, guestCharacterName, guestPeerId, hostCharacterName }) => {
       if (role === 'host') {
         // Somos el host (P1) — PeerJS ya está escuchando, no necesitamos hacer nada más.
         // Los guests se conectarán ellos solos con nuestro peerId.
         this._isHost = true;
         this._mySlot = 'P1';
         this._p2p.becomeHost();
+        this._p2p.expectGuest(guestPeerId);
         this._showLocalPlayerLabel('P1');
         this._notify(`🟢 ${guestCharacterName} aceptó. Esperando conexión...`, '#2ecc71');
         this.game.events.emit('p2p-state-changed', 'P1', this._p2p.connections.size);
