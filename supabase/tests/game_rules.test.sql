@@ -79,13 +79,18 @@ select t.check('cooldowns de cofres no se pueden borrar', (select activities_tod
 reset role;
 
 -- ── Activities grant a branch point ───────────────────────────────
-reset role; update public.characters set strength=5,resistance=5,dexterity=5,speed=5,intelligence=5,max_mana=20,willpower=5,charisma=5,
+reset role; delete from public.activities; update public.characters set strength=5,resistance=5,dexterity=5,speed=5,intelligence=5,max_mana=20,willpower=5,charisma=5,
   branch_points = '{"strength":0,"dexterity":0,"intelligence":0,"willpower":0}' where user_id = :A; set role authenticated;
 select t.check('actividad con su punto de regalo se acepta', (public.sync_character('{"xp":50,"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":1,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"strength","xpEarned":50}}')->'character'->'branchPoints'->>'strength')::int = 1);
 select t.check('dos puntos con una actividad es trampa', t.err($$select public.sync_character('{"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":3,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"strength"}}')$$) like '%inválida%');
 select t.check('el punto va a la rama de la actividad', t.err($$select public.sync_character('{"stats":{"strength":5,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":2,"dexterity":0,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"study"}}')$$) like '%inválida%');
 select t.check('actividad inventada', t.err($$select public.sync_character('{"newActivityLogged":{"type":"dormir"}}')$$) like '%desconocida%');
 select t.check('sin puntos enviados el servidor suma el punto', (public.sync_character('{"newActivityLogged":{"type":"meditation"}}')->'character'->'branchPoints'->>'willpower')::int = 1);
+select t.check('misma actividad dos veces el mismo dia', t.err($$select public.sync_character('{"newActivityLogged":{"type":"meditation"}}')$$) like '%Ya registraste%');
+select t.check('solo stats inflados es trampa', t.err($$select public.sync_character('{"stats":{"strength":50,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5}}')$$) like '%inválida%');
+select t.check('solo puntos inflados es trampa', t.err($$select public.sync_character('{"branchPoints":{"strength":90,"dexterity":0,"intelligence":0,"willpower":1}}')$$) like '%inválida%');
+select t.check('stats negativos son trampa', t.err($$select public.sync_character('{"stats":{"strength":110,"resistance":-100,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":1,"dexterity":0,"intelligence":0,"willpower":1}}')$$) like '%inválida%');
+select t.check('puntos negativos son trampa', t.err($$select public.sync_character('{"stats":{"strength":100,"resistance":5,"dexterity":5,"speed":5,"intelligence":5,"maxMana":20,"willpower":5,"charisma":5},"branchPoints":{"strength":-94,"dexterity":0,"intelligence":0,"willpower":1}}')$$) like '%inválida%');
 reset role;
 
 -- ── Weekly decay ──────────────────────────────────────────────────
@@ -118,8 +123,11 @@ select public.sync_character('{"newActivityLogged":{"type":"strength"}}');
 select public.sync_character('{"newActivityLogged":{"type":"study"}}');
 select public.sync_character('{"newActivityLogged":{"type":"running"}}');
 select t.check('2 fisicas: sigue en recuperacion', (select in_recovery from public.characters));
-select public.sync_character('{"newActivityLogged":{"type":"cardio"}}');
+reset role; update public.characters set branch_points = '{"strength":0,"dexterity":0,"intelligence":0,"willpower":0}' where user_id = :A; set role authenticated;
+-- The client still holds the reduced stats when it logs the third activity
+select public.sync_character('{"stats":{"strength":14,"resistance":14,"dexterity":14,"speed":14,"intelligence":18,"maxMana":18,"willpower":16,"charisma":16},"branchPoints":{"strength":0,"dexterity":1,"intelligence":0,"willpower":0},"newActivityLogged":{"type":"cardio"}}');
 select t.check('3 fisicas: recupera stats', (select not in_recovery and strength = 20 and intelligence = 20 from public.characters));
+select t.check('recuperacion conserva el punto de la actividad', (select (branch_points->>'dexterity')::int = 1 from public.characters));
 
 -- ── Enemies ───────────────────────────────────────────────────────
 reset role; update public.characters set gold = 0, inventory = '[]' where user_id = :A; set role authenticated;
