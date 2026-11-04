@@ -11,7 +11,7 @@ The `server/` folder is the old Express backend for Railway. The game no longer 
 ## Supabase setup
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In `SQL Editor`, run every file in `supabase/migrations/` in name order. Each one is safe to run again.
+2. In `SQL Editor`, run every file in `supabase/migrations/` in name order, each one once. The later files only replace functions and add columns if missing, so running one of those again is harmless; the first one creates the tables and fails if they already exist.
 3. In `Authentication → URL Configuration`, set `Site URL` to your Vercel URL and add it to `Redirect URLs` with `/**` at the end (for example `https://your-project.vercel.app/**`). Add the preview URLs you use too.
 4. For Google login: create an OAuth client in Google Cloud and paste its client id and secret in `Authentication → Providers → Google`. The secret goes only there, never in the frontend.
 
