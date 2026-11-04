@@ -403,6 +403,9 @@ export default class WorldScene extends Phaser.Scene {
         
         this.player.xp = character.xp;
         this.player.gold = character.gold;
+        this.player.inRecovery = character.inRecovery;
+        // After a rejected save the server's daily flags win over ours
+        if (e.detail.reloaded) this.player.activitiesToday = character.activitiesToday || {};
         this.player.moral = character.moral;
         this.player.inventory = character.inventory || [];
         this.player.branchPoints = character.branchPoints || { strength: 0, dexterity: 0, intelligence: 0, willpower: 0, vitality: 100 };
@@ -1292,47 +1295,13 @@ export default class WorldScene extends Phaser.Scene {
     return tileType === TILES.CHEST || tileType === TILES.GUILD_CHEST;
   }
 
-  _getValidChestTiles() {
-    if (this.mapId === 'cueva_goblin') return new Set([TILES.DUNGEON_FLOOR]);
-    if (this.mapId === 'deeproot')     return new Set([TILES.GRASS]);
-    return new Set([TILES.GUILD_FLOOR]);
-  }
-
   /**
-   * Places chests dynamically. Positions are PERSISTED in localStorage so
-   * reloading the page keeps the same spots (and their individual cooldowns).
-   * Positions are regenerated only when all saved spots become invalid tiles.
+   * Places the map's chests; the spots are the same on every load and device.
+   * A chest whose cooldown is still running stays hidden.
    */
   _initChests() {
     const CHEST_COUNT = { guild: 4, deeproot: 6, cueva_goblin: 5 };
-    const count = CHEST_COUNT[this.mapId] || 5;
-    const posKey = `gg_chest_pos_${this.mapId}`;
-    const validTiles = this._getValidChestTiles();
-
-    // Try to reuse saved positions (so reloading respects cooldowns)
-    // Deeproot has fixed chest spots, so only the other maps reuse saved ones
-    let spawns = null;
-    try {
-      const raw = this.mapId === 'deeproot' ? null : localStorage.getItem(posKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        // Saved spots from an older layout may now be walls or off the map: start over then
-        const stillValid = parsed.every(({ x, y }) => validTiles.has(this._mapData[y]?.[x]));
-        if (parsed.length >= count && stillValid) {
-          spawns = parsed;
-        }
-      }
-    } catch (e) { /* ignore parse errors */ }
-
-    if (!spawns) {
-      // Generate fresh positions and persist them
-      spawns = getChestSpawns(this.mapId, this._mapData, count);
-      try {
-        localStorage.setItem(posKey, JSON.stringify(spawns));
-      } catch (e) {
-        console.warn('[Chests] Failed to save chest positions:', e);
-      }
-    }
+    const spawns = getChestSpawns(this.mapId, this._mapData, CHEST_COUNT[this.mapId] || 5);
 
     this._chestPositions = [];
     spawns.forEach(({ x, y }) => {
