@@ -1688,7 +1688,15 @@ export default class WorldScene extends Phaser.Scene {
 
   _startActivityProgress(activityId, branchKey, particleColorHex, activityName) {
     const uiScene = this.scene.get(SCENES.UI);
-    
+
+    // A session counts as that day's study or meditation activity, which the
+    // server accepts once a day; check before spending vitality on it
+    const today = new Date().toISOString().split('T')[0];
+    if (this.player.activitiesToday[activityId] === today) {
+      uiScene?.showNotification?.('Ya registraste esta actividad hoy', '#e94560');
+      return;
+    }
+
     // Check vitality
     if (this.player.vitality < 20) {
       this.dialogueSystem.show(
@@ -1746,7 +1754,10 @@ export default class WorldScene extends Phaser.Scene {
 
         // Apply results
         this.player.vitality -= 20;
+        this.player.activitiesToday[activityId] = today;
         this.player.gainBranchXP(branchKey, 50);
+        this.dailyMissions.trackActivity(branchKey);
+        this._syncQuestsUI();
 
         this.game.events.emit('update-vitality', this.player.vitality);
         if (uiScene && uiScene.showNotification) {
@@ -1758,8 +1769,8 @@ export default class WorldScene extends Phaser.Scene {
           this._showStatAllocationDialog(branchKey);
         });
 
-        // Save progress
-        SaveSystem.save(this.player.getSaveData());
+        // Logged like the activity itself, so the server grants the branch point
+        SaveSystem.save(this.player.getSaveData(), { type: activityId, xpEarned: 50 });
       }
     });
   }
