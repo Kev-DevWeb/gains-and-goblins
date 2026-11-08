@@ -2088,7 +2088,7 @@ export default class WorldScene extends Phaser.Scene {
   }
 
   // ========================================================================
-  //  MULTIPLE JUGADORES (Socket.IO Helpers)
+  //  MULTIPLE JUGADORES
   // ========================================================================
   // Colores de ropa por slot de jugador
   static get SLOT_COLORS() {

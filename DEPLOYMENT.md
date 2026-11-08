@@ -6,8 +6,6 @@ The game is a static site on Vercel that talks straight to Supabase:
 - Accounts, database and game rules: Supabase (Auth, Postgres and RPC functions)
 - Lobby and invites: Supabase Realtime; the game itself runs peer to peer through PeerJS
 
-The `server/` folder is the old Express backend for Railway. The game no longer uses it.
-
 ## Supabase setup
 
 1. Create a project at [supabase.com](https://supabase.com).

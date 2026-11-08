@@ -3,7 +3,7 @@ name: anti-slop
 description: >-
   Reglas para evitar "slop" (código y texto genérico, de relleno o de baja
   calidad) en Gains & Goblins. Úsala al escribir o revisar código JavaScript
-  (Phaser en src/, Express/Prisma en server/), textos del juego (diálogos,
+  (Phaser en src/) o SQL de Supabase (supabase/), textos del juego (diálogos,
   misiones, notificaciones) o documentación (README, context/, DEPLOYMENT.md).
   También cuando el usuario pida "revisar slop", "limpiar el código" o
   "/anti-slop".
@@ -17,7 +17,7 @@ adorno. Esta skill tiene dos modos:
 
 - **Al escribir**: sigue las reglas de abajo mientras generas código o texto.
 - **Al revisar** (`/anti-slop` o "revisa el slop"): recorre los archivos
-  pedidos (o todo `src/`, `server/` y los `.md` si no se especifica) y entrega
+  pedidos (o todo `src/`, `supabase/` y los `.md` si no se especifica) y entrega
   una lista de hallazgos. **No cambies nada hasta que el usuario lo apruebe.**
 
 ## Reglas de código
@@ -41,10 +41,10 @@ adorno. Esta skill tiene dos modos:
    comunicar escenas, métodos privados con `_prefijo`, textos del jugador en
    español. No introduzcas otro patrón sin motivo.
 8. **Logs de depuración**: elimina `console.log` temporales antes de
-   terminar; deja solo los que sirven en producción (servidor).
+   terminar; deja solo los avisos de errores reales (`console.warn`).
 9. **Funciones gigantes**: si un método supera ~80 líneas o mezcla varias
    responsabilidades (input, física, UI), sepáralo en métodos con nombre claro.
-   Aplica sobre todo a `WorldScene.js`, `BootScene.js` y `server/server.js`.
+   Aplica sobre todo a `WorldScene.js` y `BootScene.js`.
 
 ## Reglas de texto (juego y documentación)
 

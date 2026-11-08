@@ -4,12 +4,12 @@
 ---
 
 ## 1. Resumen Técnico Actual del Proyecto
-El proyecto es una aplicación web (SPA) con un servidor propio:
+El proyecto es una aplicación web (SPA) sin servidor propio:
 * **Vite** como empaquetador y servidor de desarrollo rápido.
 * **Phaser 3 (v3.87.0)** para el motor del videojuego 2D (físicas de tipo arcade, rendering de mapas, combate y lógica de movimiento).
 * **HTML5 y Vanilla CSS** para el HUD fuera del canvas del juego.
-* **Servidor Node.js + Express** (`server/`) con **Prisma** sobre **PostgreSQL (Neon)** para guardar usuarios, personajes y actividades.
-* **Socket.IO** para jugadores en línea e invitaciones a grupo, y **PeerJS** (P2P) para sincronizar partidas entre jugadores.
+* **Supabase** para las cuentas (correo y Google), la base de datos PostgreSQL y las reglas del juego, escritas como funciones SQL en `supabase/migrations/`.
+* **Supabase Realtime** para jugadores en línea e invitaciones a grupo, y **PeerJS** (P2P) para sincronizar partidas entre jugadores.
 * **Generación Procedimental Gráfica:** Texturas generadas en tiempo real mediante operaciones de Canvas, evitando la carga de archivos de imagen externos.
 
 ---
@@ -26,10 +26,10 @@ A continuación se detalla la comparativa entre lo que el documento de diseño [
 | **Evolución Física de Stats** | **SÍ** | [Player.js](../src/entities/Player.js), [BootScene.js](../src/scenes/BootScene.js) | Cuando una estadística clave (Fuerza, Destreza, Inteligencia) llega a 10, la apariencia del personaje se regenera visualmente (robusto, ágil, ropajes arcanos, etc.). |
 | **Afinidad Orgánica** | **SÍ (Local)** | [Player.js](../src/entities/Player.js) | Registra actividades locales y otorga un +15% de daño si usas la rama dominante. **Diferencia:** En el código se calcula por mes calendario, mientras que el plan v2 pedía ventana deslizante de 30 días. |
 | **Evadir/Esquivar** | **SÍ** | [Player.js](../src/entities/Player.js) | Voltereta táctica presionando `SHIFT` con invulnerabilidad temporal y efecto visual de partículas de polvo. |
-| **Esquema de Base de Datos** | **SÍ** | [schema.prisma](../server/prisma/schema.prisma) | PostgreSQL en Neon con Prisma. Modelos `User`, `Character` y `Activity`. |
-| **Servidor / Backend API** | **SÍ** | [server.js](../server/server.js) | Express con registro, login y endpoints autoritativos (sincronizar personaje, enemigos, cofres, compras). Contraseñas cifradas con bcrypt y peticiones autenticadas con JWT. |
-| **Red Multijugador (Sockets)** | **SÍ (Parcial)** | [server.js](../server/server.js), [P2PManager.js](../src/utils/P2PManager.js) | Socket.IO para jugadores en línea e invitaciones a grupo; PeerJS para la partida compartida. **Falta:** chat global. |
-| **Google Fit / Fitbit API** | **SÍ (Fitbit)** | [server.js](../server/server.js), [main.js](../src/main.js) | OAuth 2.0 con Fitbit (Google Health) y sincronización de ejercicios. Google Fit no está integrado. |
+| **Esquema de Base de Datos** | **SÍ** | [supabase/migrations](../supabase/migrations) | PostgreSQL en Supabase. Tablas `characters`, `activities` y `shop_items`, con seguridad por filas: cada jugador solo lee lo suyo. |
+| **Reglas del juego (backend)** | **SÍ** | [supabase/migrations](../supabase/migrations), [SaveSystem.js](../src/utils/SaveSystem.js) | Funciones SQL autoritativas: guardar personaje, enemigos, cofres y compras, con límites contra trampas. Login con Supabase Auth. Pruebas en [game_rules.test.sql](../supabase/tests/game_rules.test.sql). |
+| **Red Multijugador** | **SÍ (Parcial)** | [Lobby.js](../src/utils/Lobby.js), [P2PManager.js](../src/utils/P2PManager.js) | Supabase Realtime para jugadores en línea e invitaciones a grupo; PeerJS para la partida compartida. **Falta:** chat global y verificar la identidad de quien invita. |
+| **Datos de salud (Google Health)** | **NO** | [main.js](../src/main.js) | La API de Fitbit deja de funcionar el 30/10/2026 y su integración se quitó con el servidor. El botón muestra «disponible pronto» hasta integrar la API de Google Health. |
 | **Sistema de Moral** | **Parcial** | [DialogueSystem.js](../src/ui/DialogueSystem.js), [WorldScene.js](../src/scenes/WorldScene.js) | Existe el valor `moral` y se reduce al empujar NPCs. **Falta:** cambios de apariencia por rachas (brillo a los 7 días, sombras por abandono). |
 | **Árbol de Habilidades** | **NO** | Ninguno | Las estadísticas se incrementan linealmente, pero no existen ramas de técnicas desbloqueables avanzadas para cada arma. |
 | **React & Tailwind CSS** | **NO** | [index.html](../index.html) | La UI del juego se construyó usando Vanilla HTML y Vanilla CSS ([game.css](../styles/game.css)) en lugar del stack propuesto (React + Tailwind). |

@@ -9,7 +9,7 @@ const INVITE_TTL_MS = 60000;
  * and PeerJS id; invites are broadcasts addressed to a player id. The game itself
  * still runs peer to peer through P2PManager.
  *
- * Emits the same events the old Socket.IO server did:
+ * Emits:
  * invite-received, invite-sent, invite-error, invite-declined, invite-accepted.
  */
 export default class Lobby extends Phaser.Events.EventEmitter {

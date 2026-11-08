@@ -1,7 +1,7 @@
 /**
  * P2PManager.js
  * Gestiona conexiones WebRTC usando PeerJS (hasta 4 jugadores: 1 host + 3 guests).
- * El servidor de Railway solo se usa para enviar invitaciones por correo.
+ * Las invitaciones viajan por Supabase Realtime (Lobby.js).
  * PeerJS maneja automáticamente el ICE/STUN/signaling a través de su servidor cloud.
  *
  * Topología: Estrella centrada en el HOST.
